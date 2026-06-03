@@ -761,7 +761,7 @@ func GetDeleteWriteChangelogItems(
 			tk.GetRelation(),
 			tk.GetUser(),
 			"",
-			nil, // Redact condition info for Deletes since we only need the base triplet (object, relation, user).
+			[]byte(nil), // Redact condition info for Deletes since we only need the base triplet (object, relation, user).
 			int32(openfgav1.TupleOperation_TUPLE_OPERATION_DELETE),
 			id,
 			sq.Expr(nowExpr),
@@ -1024,7 +1024,7 @@ func WriteAuthorizationModel(
 	_, err = dbInfo.stbl.
 		Insert("authorization_model").
 		Columns("store", "authorization_model_id", "schema_version", "type", "type_definition", "serialized_protobuf").
-		Values(store, model.GetId(), schemaVersion, "", nil, pbdata).
+		Values(store, model.GetId(), schemaVersion, "", []byte(nil), pbdata).
 		ExecContext(ctx)
 	if err != nil {
 		return dbInfo.HandleSQLError(err)

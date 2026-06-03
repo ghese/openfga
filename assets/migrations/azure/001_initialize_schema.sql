@@ -8,21 +8,16 @@ CREATE TABLE tuple (
     user_type VARCHAR(7) NOT NULL,
     ulid CHAR(26) NOT NULL,
     inserted_at DATETIME2 NOT NULL,
-    condition_name VARCHAR(256),
-    condition_context VARBINARY(MAX),
     PRIMARY KEY (store, object_type, object_id, relation, _user)
 );
 
 CREATE UNIQUE INDEX idx_tuple_ulid ON tuple (ulid);
-CREATE INDEX idx_reverse_lookup_user ON tuple (store, object_type, relation, _user);
 
 CREATE TABLE authorization_model (
     store CHAR(26) NOT NULL,
     authorization_model_id CHAR(26) NOT NULL,
     type VARCHAR(256) NOT NULL,
     type_definition VARBINARY(MAX),
-    schema_version VARCHAR(5) NOT NULL DEFAULT '1.0',
-    serialized_protobuf VARBINARY(MAX),
     PRIMARY KEY (store, authorization_model_id, type)
 );
 
@@ -50,8 +45,6 @@ CREATE TABLE changelog (
     operation INTEGER NOT NULL,
     ulid CHAR(26) NOT NULL,
     inserted_at DATETIME2 NOT NULL,
-    condition_name VARCHAR(256),
-    condition_context VARBINARY(MAX),
     PRIMARY KEY (store, ulid, object_type)
 );
 

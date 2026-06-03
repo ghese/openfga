@@ -9,7 +9,7 @@ import (
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
-	"github.com/denisenkom/go-mssqldb"
+	"github.com/microsoft/go-mssqldb"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"go.opentelemetry.io/otel"
@@ -78,7 +78,7 @@ func NewWithDB(db *sql.DB, cfg *sqlcommon.Config) (*Datastore, error) {
 		}
 	}
 
-	stbl := sq.StatementBuilder.RunWith(db)
+	stbl := sq.StatementBuilder.PlaceholderFormat(sq.AtP).RunWith(db)
 	dbInfo := sqlcommon.NewDBInfo(stbl, HandleSQLError, "sqlserver")
 
 	return &Datastore{
@@ -169,7 +169,7 @@ func (s *Datastore) read(ctx context.Context, store string, filter storage.ReadF
 		sb = sb.Where(sq.GtOrEq{"ulid": token})
 	}
 	if options != nil && options.Pagination.PageSize != 0 {
-		sb = sb.Limit(uint64(options.Pagination.PageSize + 1))
+		sb = sb.Suffix("OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY", uint64(options.Pagination.PageSize + 1))
 	}
 
 	return sqlcommon.NewSQLTupleIterator(sqlcommon.NewSBIteratorQuery(sb), HandleSQLError), nil
@@ -233,35 +233,23 @@ func makeTupleLockKeys(deletes storage.Deletes, writes storage.Writes) []tupleLo
 	return keys
 }
 
-func buildRowConstructorIN(keys []tupleLockKey) (string, []interface{}) {
-	var sb strings.Builder
-	args := make([]interface{}, 0, len(keys)*5)
-	sb.WriteString("(")
-	for i, k := range keys {
-		if i > 0 {
-			sb.WriteString(",")
-		}
-		sb.WriteString("(?,?,?,?,?)")
-		args = append(args,
-			k.objectType,
-			k.objectID,
-			k.relation,
-			k.user,
-			k.userType,
-		)
-	}
-	sb.WriteString(")")
-	return sb.String(), args
-}
-
 func (s *Datastore) selectExistingRowsForWrite(ctx context.Context, store string, keys []tupleLockKey, txn *sql.Tx, existing map[string]*openfgav1.Tuple) error {
-	inExpr, args := buildRowConstructorIN(keys)
+	orConditions := sq.Or{}
+	for _, k := range keys {
+		orConditions = append(orConditions, sq.And{
+			sq.Eq{"object_type": k.objectType},
+			sq.Eq{"object_id": k.objectID},
+			sq.Eq{"relation": k.relation},
+			sq.Eq{"_user": k.user},
+			sq.Eq{"user_type": k.userType},
+		})
+	}
 
 	selectBuilder := s.stbl.
 		Select(sqlcommon.SQLIteratorColumns()...).
 		From("tuple WITH (UPDLOCK, ROWLOCK)").
 		Where(sq.Eq{"store": store}).
-		Where(sq.Expr("(object_type, object_id, relation, _user, user_type) IN "+inExpr, args...)).
+		Where(orConditions).
 		RunWith(txn)
 
 	iter := sqlcommon.NewSQLTupleIterator(sqlcommon.NewSBIteratorQuery(selectBuilder), HandleSQLError)
@@ -569,7 +557,7 @@ func (s *Datastore) ReadStartingWithUser(
 			"object_type": filter.ObjectType,
 			"relation":    filter.Relation,
 			"_user":       targetUsersArg,
-		}).OrderBy("object_id")
+		}).OrderBy("object_id COLLATE Latin1_General_BIN2")
 
 	if filter.ObjectIDs != nil && filter.ObjectIDs.Size() > 0 {
 		builder = builder.Where(sq.Eq{"object_id": filter.ObjectIDs.Values()})
@@ -607,7 +595,7 @@ func (s *Datastore) ReadAuthorizationModels(ctx context.Context, store string, o
 		sb = sb.Where(sq.LtOrEq{"authorization_model_id": token})
 	}
 	if options.Pagination.PageSize > 0 {
-		sb = sb.Limit(uint64(options.Pagination.PageSize + 1))
+		sb = sb.Suffix("OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY", uint64(options.Pagination.PageSize + 1))
 	}
 
 	rows, err := sb.QueryContext(ctx)
@@ -776,7 +764,7 @@ func (s *Datastore) ListStores(ctx context.Context, options storage.ListStoresOp
 		OrderBy("id")
 
 	if options.Pagination.PageSize > 0 {
-		sb = sb.Limit(uint64(options.Pagination.PageSize + 1))
+		sb = sb.Suffix("OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY", uint64(options.Pagination.PageSize + 1))
 	}
 
 	rows, err := sb.QueryContext(ctx)
@@ -920,13 +908,10 @@ func (s *Datastore) ReadChanges(ctx context.Context, store string, filter storag
 		sb = sqlcommon.AddFromUlid(sb, options.Pagination.From, options.SortDesc)
 	}
 	if options.Pagination.PageSize > 0 {
-		sb = sb.Limit(uint64(options.Pagination.PageSize))
+		sb = sb.Suffix("OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY", uint64(options.Pagination.PageSize))
 	}
 
 	rows, err := sb.QueryContext(ctx)
-	if err != nil {
-		return nil, "", HandleSQLError(err)
-	}
 	defer rows.Close()
 
 	var changes []*openfgav1.TupleChange

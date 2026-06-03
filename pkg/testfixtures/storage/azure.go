@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/denisenkom/go-mssqldb"
+	_ "github.com/microsoft/go-mssqldb"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
@@ -139,11 +139,17 @@ func RunAzureTestContainer(t testing.TB) DatastoreTestContainer {
 	tplURI := azureConnectionURI(testCont.host, testCont.port, azureTemplateDB, testCont.username, testCont.password)
 	require.NoError(t, waitForMigrationVersion("sqlserver", tplURI, testCont.version))
 
-	// Create database
+	// Create test database
 	createExec := client.ExecCreateOptions{
-		Cmd: []string{"/opt/mssql-tools/bin/sqlcmd", "-S", "localhost", "-U", "sa", "-P", azurePassword, "-Q", fmt.Sprintf("CREATE DATABASE [%s];", testCont.database)},
+		Cmd: []string{"/opt/mssql-tools18/bin/sqlcmd", "-S", "localhost", "-U", "sa", "-P", azurePassword, "-C", "-Q", fmt.Sprintf("CREATE DATABASE [%s];", testCont.database)},
 	}
 	require.NoError(t, docker.ExecCommand(t.Context(), dockerCont.ID, createExec))
+
+	// Run migrations on the test database
+	db, err := goose.OpenDBWithDriver("sqlserver", testCont.GetConnectionURI(true))
+	require.NoError(t, err)
+	require.NoError(t, goose.Up(db, assets.AzureMigrationDir))
+	require.NoError(t, db.Close())
 
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -151,7 +157,7 @@ func RunAzureTestContainer(t testing.TB) DatastoreTestContainer {
 
 		dropQuery := fmt.Sprintf("DROP DATABASE [%s];", testCont.database)
 		dropExec := client.ExecCreateOptions{
-			Cmd: []string{"/opt/mssql-tools/bin/sqlcmd", "-S", "localhost", "-U", "sa", "-P", azurePassword, "-Q", dropQuery},
+			Cmd: []string{"/opt/mssql-tools18/bin/sqlcmd", "-S", "localhost", "-U", "sa", "-P", azurePassword, "-C", "-Q", dropQuery},
 		}
 		if err := docker.ExecCommand(ctx, dockerCont.ID, dropExec); err != nil {
 			t.Errorf("drop test database in the azure container: %v", err)
@@ -186,11 +192,7 @@ func bootstrapAzureContainer(ctx context.Context, docker *testutils.DockerClient
 	}
 
 	hostCfg := &container.HostConfig{
-		AutoRemove:      true,
 		PublishAllPorts: true,
-		Tmpfs: map[string]string{
-			"/var/opt/mssql": "size=2g",
-		},
 	}
 
 	cont, err := docker.RunContainer(ctx, contCfg, hostCfg, azureContainerName)
@@ -213,14 +215,14 @@ func bootstrapAzureContainer(ctx context.Context, docker *testutils.DockerClient
 		return nil, fmt.Errorf("get azure host port: %w", err)
 	}
 
-	dbURI := azureConnectionURI("localhost", port, azureTemplateDB, azureUsername, azurePassword)
+	dbURI := azureConnectionURI("localhost", port, "master", azureUsername, azurePassword)
 	if err := waitForDatabase("sqlserver", dbURI); err != nil {
 		return nil, fmt.Errorf("wait for azure database: %w", err)
 	}
 
 	// Create template database
 	createTplExec := client.ExecCreateOptions{
-		Cmd: []string{"/opt/mssql-tools/bin/sqlcmd", "-S", "localhost", "-U", "sa", "-P", azurePassword, "-Q", fmt.Sprintf("CREATE DATABASE [%s];", azureTemplateDB)},
+		Cmd: []string{"/opt/mssql-tools18/bin/sqlcmd", "-S", "localhost", "-U", "sa", "-P", azurePassword, "-C", "-Q", fmt.Sprintf("CREATE DATABASE [%s];", azureTemplateDB)},
 	}
 	if err := docker.ExecCommand(ctx, cont.ID, createTplExec); err != nil {
 		return nil, fmt.Errorf("create template database: %w", err)

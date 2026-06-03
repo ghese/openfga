@@ -15,7 +15,7 @@ import (
 func waitForDatabase(driverName, uri string) error { //nolint:unparam
 	backoffPolicy := backoff.NewExponentialBackOff(
 		backoff.WithInitialInterval(100*time.Millisecond),
-		backoff.WithMaxElapsedTime(60*time.Second),
+		backoff.WithMaxElapsedTime(120*time.Second),
 	)
 
 	err := backoff.Retry(func() error {
