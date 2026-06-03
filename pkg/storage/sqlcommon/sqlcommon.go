@@ -707,6 +707,11 @@ func GetDeleteWriteChangelogItems(
 	writeData WriteData) (sq.Or, [][]interface{}, [][]interface{}, error) {
 	changeLogItems := make([][]interface{}, 0, len(writeData.Deletes)+len(writeData.Writes))
 
+	nowExpr := writeData.TimestampExpr
+	if nowExpr == "" {
+		nowExpr = "NOW()"
+	}
+
 	// ensures increasingly unique values within a single thread
 	entropy := ulid.DefaultEntropy()
 
@@ -759,7 +764,7 @@ func GetDeleteWriteChangelogItems(
 			nil, // Redact condition info for Deletes since we only need the base triplet (object, relation, user).
 			int32(openfgav1.TupleOperation_TUPLE_OPERATION_DELETE),
 			id,
-			sq.Expr("NOW()"),
+			sq.Expr(nowExpr),
 		})
 	}
 
@@ -815,7 +820,7 @@ func GetDeleteWriteChangelogItems(
 			conditionName,
 			conditionContext,
 			id,
-			sq.Expr("NOW()"),
+			sq.Expr(nowExpr),
 		})
 
 		changeLogItems = append(changeLogItems, []interface{}{
@@ -828,17 +833,18 @@ func GetDeleteWriteChangelogItems(
 			conditionContext,
 			int32(openfgav1.TupleOperation_TUPLE_OPERATION_WRITE),
 			id,
-			sq.Expr("NOW()"),
+			sq.Expr(nowExpr),
 		})
 	}
 	return deleteConditions, writeItems, changeLogItems, nil
 }
 
 type WriteData struct {
-	Deletes storage.Deletes
-	Writes  storage.Writes
-	Opts    storage.TupleWriteOptions
-	Now     time.Time
+	Deletes      storage.Deletes
+	Writes       storage.Writes
+	Opts         storage.TupleWriteOptions
+	Now          time.Time
+	TimestampExpr string
 }
 
 // Write provides the common method for writing to database across sql storage.

@@ -95,6 +95,9 @@ func RunMigrations(cfg MigrationConfig) error {
 
 		// Replace CLI uri with the one we just updated.
 		uri = dbURI.String()
+	case "azure":
+		driver = "sqlserver"
+		migrationsPath = assets.AzureMigrationDir
 	case "sqlite":
 		driver = "sqlite"
 		migrationsPath = assets.SqliteMigrationDir

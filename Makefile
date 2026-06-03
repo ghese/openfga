@@ -85,7 +85,7 @@ lint: $(GO_BIN)/golangci-lint ## Lint Go source files
 .PHONY: test test-unit test-storage test-matrix test-docker test-bench generate-mocks
 
 # Package groups for parallel CI jobs
-STORAGE_PACKAGES := ./pkg/storage/sqlite/... ./pkg/storage/mysql/... ./pkg/storage/postgres/... ./pkg/storage/memory/... ./pkg/storage/migrate/...
+STORAGE_PACKAGES := ./pkg/storage/sqlite/... ./pkg/storage/mysql/... ./pkg/storage/postgres/... ./pkg/storage/memory/... ./pkg/storage/azure/... ./pkg/storage/migrate/...
 MATRIX_PACKAGES := ./tests/... ./cmd/run/... ./cmd/validatemodels/...
 
 test: generate-mocks ## Run all tests. To run a specific test, pass the FILTER var. Usage `make test FILTER="TestCheckLogs"`
@@ -155,7 +155,7 @@ test-bench: generate-mocks ## Run benchmark tests. See https://pkg.go.dev/cmd/go
 #-----------------------------------------------------------------------------------------------------------------------
 .PHONY: dev-run
 
-dev-run: $(GO_BIN)/CompileDaemon $(GO_BIN)/openfga ## Run the OpenFGA server with hot reloading. Data storage type can be overridden using DATASTORE="mysql", available options are `in-memory`, `mysql`, `postgres`, `sqlite`, default is "in-memory". Usage `DATASTORE="mysql" make dev-run`
+dev-run: $(GO_BIN)/CompileDaemon $(GO_BIN)/openfga ## Run the OpenFGA server with hot reloading. Data storage type can be overridden using DATASTORE="mysql", available options are `in-memory`, `mysql`, `postgres`, `sqlite`, `azure`, default is "in-memory". Usage `DATASTORE="mysql" make dev-run`
 	${call print, "Starting OpenFGA server"}
 	@case "${DATASTORE}" in \
 		"in-memory") \
@@ -183,6 +183,14 @@ dev-run: $(GO_BIN)/CompileDaemon $(GO_BIN)/openfga ## Run the OpenFGA server wit
 			echo "==> Running OpenFGA with SQLite data storage"; \
 			openfga migrate --datastore-engine sqlite --datastore-uri '/tmp/openfga.sqlite'; \
 			CompileDaemon -graceful-kill -build='make install' -command="openfga run --datastore-engine sqlite --datastore-uri /tmp/openfga.sqlite"; \
+			break; \
+			;; \
+		"azure") \
+			echo "==> Running OpenFGA with Azure SQL data storage"; \
+			docker run -d --name mssql -e 'ACCEPT_EULA=Y' -e 'SA_PASSWORD=YourStrong@Pass1' -p 1433:1433 mcr.microsoft.com/mssql/server:2022-latest > /dev/null 2>&1 || docker start mssql; \
+			sleep 30; \
+			openfga migrate --datastore-engine azure --datastore-uri 'sqlserver://sa:YourStrong@Pass1@localhost:1433?database=openfga'; \
+			CompileDaemon -graceful-kill -build='make install' -command="openfga run --datastore-engine azure --datastore-uri sqlserver://sa:YourStrong@Pass1@localhost:1433?database=openfga"; \
 			break; \
 			;; \
 		*) \
