@@ -115,7 +115,7 @@ test-unit: generate-mocks ## Run unit tests (fast packages only)
 	@cat coverageunit.tmp.out | grep -v "mock" > coverageunit.out
 	@rm coverageunit.tmp.out
 
-test-storage: generate-mocks ## Run storage integration tests (sqlite, mysql, postgres, memory)
+test-storage: generate-mocks ## Run storage integration tests (sqlite, mysql, postgres, azure, memory)
 	${call print, "Running storage integration tests"}
 	@go test -race \
 			-run "$(FILTER)" \

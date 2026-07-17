@@ -11,5 +11,6 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	storagefixtures.CleanupPostgresContainer()
 	storagefixtures.CleanupMysqlContainer()
+	storagefixtures.CleanupAzureContainer()
 	os.Exit(code)
 }

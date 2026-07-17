@@ -1,4 +1,4 @@
-package check
+package azure
 
 import (
 	"os"
@@ -9,8 +9,6 @@ import (
 
 func TestMain(m *testing.M) {
 	code := m.Run()
-	storagefixtures.CleanupPostgresContainer()
-	storagefixtures.CleanupMysqlContainer()
 	storagefixtures.CleanupAzureContainer()
 	os.Exit(code)
 }

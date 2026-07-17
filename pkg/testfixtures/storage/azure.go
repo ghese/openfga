@@ -21,11 +21,11 @@ import (
 )
 
 const (
-	azureImage          = "mcr.microsoft.com/mssql/server:2022-latest"
-	azureDBPrefix       = "openfga-test-db-"
-	azureTemplateDB     = azureDBPrefix + "template"
-	azureUsername       = "sa"
-	azurePassword       = "YourStrong@Pass1"
+	azureImage      = "mcr.microsoft.com/mssql/server:2022-latest"
+	azureDBPrefix   = "openfga-test-db-"
+	azureTemplateDB = azureDBPrefix + "template"
+	azureUsername   = "sa"
+	azurePassword   = "YourStrong@Pass1"
 )
 
 var (

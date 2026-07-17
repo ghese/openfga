@@ -51,6 +51,10 @@ func TestMatrixMysql(t *testing.T) {
 	runMatrixWithEngine(t, "mysql")
 }
 
+func TestMatrixAzure(t *testing.T) {
+	runMatrixWithEngine(t, "azure")
+}
+
 // TODO: re-enable after investigating write contention in test
 // func TestMatrixSqlite(t *testing.T) {
 //	runMatrixWithEngine(t, "sqlite")
@@ -58,7 +62,9 @@ func TestMatrixMysql(t *testing.T) {
 
 func runMatrixWithEngine(t *testing.T, engine string) {
 	t.Cleanup(func() {
-		goleak.VerifyNone(t)
+		// go-winio's ioCompletionProcessor is a process-lifetime goroutine created by the
+		// Docker client's named-pipe transport on Windows; it is not a leak.
+		goleak.VerifyNone(t, goleak.IgnoreAnyFunction("github.com/Microsoft/go-winio.ioCompletionProcessor"))
 	})
 
 	clientWithExperimentals := tests.BuildClientInterface(t, engine, []string{config.ExperimentalCheckOptimizations})
@@ -87,6 +93,10 @@ func TestCheckMySQL(t *testing.T) {
 
 func TestCheckSQLite(t *testing.T) {
 	testRunAll(t, "sqlite", config.ExperimentalCheckOptimizations)
+}
+
+func TestCheckAzure(t *testing.T) {
+	testRunAll(t, "azure", config.ExperimentalCheckOptimizations)
 }
 
 // TODO move elsewhere as this isn't asserting on just Check API logs.
@@ -346,7 +356,9 @@ func TestServerLogs(t *testing.T) {
 
 func testRunAll(t *testing.T, engine string, flags ...string) {
 	t.Cleanup(func() {
-		goleak.VerifyNone(t)
+		// go-winio's ioCompletionProcessor is a process-lifetime goroutine created by the
+		// Docker client's named-pipe transport on Windows; it is not a leak.
+		goleak.VerifyNone(t, goleak.IgnoreAnyFunction("github.com/Microsoft/go-winio.ioCompletionProcessor"))
 	})
 	cfg := testutils.MustDefaultConfigForParallelTests()
 	cfg.Experimentals = append(cfg.Experimentals, flags...)

@@ -19,6 +19,7 @@ func TestMigrateCommandRollbacks(t *testing.T) {
 		{Engine: "postgres"},
 		{Engine: "mysql"},
 		{Engine: "sqlite", MinVersion: 5},
+		{Engine: "azure"},
 	}
 
 	for _, e := range engines {

@@ -844,10 +844,10 @@ func GetDeleteWriteChangelogItems(
 }
 
 type WriteData struct {
-	Deletes      storage.Deletes
-	Writes       storage.Writes
-	Opts         storage.TupleWriteOptions
-	Now          time.Time
+	Deletes       storage.Deletes
+	Writes        storage.Writes
+	Opts          storage.TupleWriteOptions
+	Now           time.Time
 	TimestampExpr string
 }
 

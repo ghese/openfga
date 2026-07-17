@@ -98,6 +98,29 @@ func RunMigrations(cfg MigrationConfig) error {
 	case "azure":
 		driver = "sqlserver"
 		migrationsPath = assets.AzureMigrationDir
+
+		// Parse the database uri with url.Parse() and update username/password, if set via flags
+		if cfg.Username != "" || cfg.Password != "" {
+			dbURI, err := url.Parse(uri)
+			if err != nil {
+				return fmt.Errorf("invalid database uri: %w", err)
+			}
+			var username, password string
+			if dbURI.User != nil {
+				username = dbURI.User.Username()
+				password, _ = dbURI.User.Password()
+			}
+			if cfg.Username != "" {
+				username = cfg.Username
+			}
+			if cfg.Password != "" {
+				password = cfg.Password
+			}
+			dbURI.User = url.UserPassword(username, password)
+
+			// Replace CLI uri with the one we just updated.
+			uri = dbURI.String()
+		}
 	case "sqlite":
 		driver = "sqlite"
 		migrationsPath = assets.SqliteMigrationDir

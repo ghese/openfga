@@ -8,6 +8,7 @@ Try to keep listed changes to a concise bulleted list of simple explanations of 
 
 ## [Unreleased]
 ### Added
+- Added a new `azure` datastore engine supporting Azure SQL Database and SQL Server, usable via `--datastore-engine azure` with a `sqlserver://` connection URI for both `openfga run` and `openfga migrate`. Schema migrations live in `assets/migrations/azure` and use the binary collation `Latin1_General_BIN2` so identifier comparison is case-sensitive, matching the other SQL datastores.
 - Extended experimental `weighted_graph_check` diagnostic logging to cover the `wildcard_with_exclusion` and `userset_with_exclusion` shapes: the log now fires when v2 Check rejects one of these shapes and Check falls back to v1, and when v2 Check is skipped entirely because the weighted graph fails to build. These logs surface authorization models that may be affected by a future v1 deprecation, and no operator action is required. [#3204](https://github.com/openfga/openfga/pull/3204)
 
 ### Changed

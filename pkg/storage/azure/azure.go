@@ -9,7 +9,7 @@ import (
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
-	"github.com/microsoft/go-mssqldb"
+	mssql "github.com/microsoft/go-mssqldb"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"go.opentelemetry.io/otel"
@@ -169,7 +169,7 @@ func (s *Datastore) read(ctx context.Context, store string, filter storage.ReadF
 		sb = sb.Where(sq.GtOrEq{"ulid": token})
 	}
 	if options != nil && options.Pagination.PageSize != 0 {
-		sb = sb.Suffix("OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY", uint64(options.Pagination.PageSize + 1))
+		sb = sb.Suffix("OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY", uint64(options.Pagination.PageSize+1))
 	}
 
 	return sqlcommon.NewSQLTupleIterator(sqlcommon.NewSBIteratorQuery(sb), HandleSQLError), nil
@@ -595,7 +595,7 @@ func (s *Datastore) ReadAuthorizationModels(ctx context.Context, store string, o
 		sb = sb.Where(sq.LtOrEq{"authorization_model_id": token})
 	}
 	if options.Pagination.PageSize > 0 {
-		sb = sb.Suffix("OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY", uint64(options.Pagination.PageSize + 1))
+		sb = sb.Suffix("OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY", uint64(options.Pagination.PageSize+1))
 	}
 
 	rows, err := sb.QueryContext(ctx)
@@ -764,7 +764,7 @@ func (s *Datastore) ListStores(ctx context.Context, options storage.ListStoresOp
 		OrderBy("id")
 
 	if options.Pagination.PageSize > 0 {
-		sb = sb.Suffix("OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY", uint64(options.Pagination.PageSize + 1))
+		sb = sb.Suffix("OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY", uint64(options.Pagination.PageSize+1))
 	}
 
 	rows, err := sb.QueryContext(ctx)
@@ -912,6 +912,9 @@ func (s *Datastore) ReadChanges(ctx context.Context, store string, filter storag
 	}
 
 	rows, err := sb.QueryContext(ctx)
+	if err != nil {
+		return nil, "", HandleSQLError(err)
+	}
 	defer rows.Close()
 
 	var changes []*openfgav1.TupleChange
@@ -960,6 +963,10 @@ func (s *Datastore) ReadChanges(ctx context.Context, store string, filter storag
 			Operation: openfgav1.TupleOperation(operation),
 			Timestamp: timestamppb.New(insertedAt.UTC()),
 		})
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, "", HandleSQLError(err)
 	}
 
 	if len(changes) == 0 {
