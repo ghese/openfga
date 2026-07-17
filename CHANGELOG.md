@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Try to keep listed changes to a concise bulleted list of simple explanations of changes. Aim for the amount of information needed so that readers can understand where they would look in the codebase to investigate the changes' implementation, or where they would look in the documentation to understand how to make use of the change in practice - better yet, link directly to the docs and provide detailed information there. Only elaborate if doing so is required to avoid breaking changes or experimental features from ruining someone's day.
 
 ## [Unreleased]
+### Added
+- Extended experimental `weighted_graph_check` diagnostic logging to cover the `wildcard_with_exclusion` and `userset_with_exclusion` shapes: the log now fires when v2 Check rejects one of these shapes and Check falls back to v1, and when v2 Check is skipped entirely because the weighted graph fails to build. These logs surface authorization models that may be affected by a future v1 deprecation, and no operator action is required. [#3204](https://github.com/openfga/openfga/pull/3204)
+
+### Changed
+- Matched experimental `weighted_graph_check` cache metrics with original Check cache metrics: iterator cache metrics renamed to `tuples_cache_total_count`, `tuples_cache_hit_count`, `tuples_cache_discard_count`, `tuples_cache_size`; query cache metrics added as `check_cache_total_count`, `check_cache_hit_count`, `check_cache_invalid_hit_count`. [#3184](https://github.com/openfga/openfga/pull/3184)
+
+## [1.18.1] - 2026-06-29
+### Added
+- Added diagnostic logging in experimental `weighted_graph_check` when v2 Check resolution might produce a different result than v1 for the same query. These logs surface authorization models that may be affected by a future v1 deprecation, and no operator action is required. [#3149](https://github.com/openfga/openfga/pull/3149)
+- Added diagnostic logging in `Expand` and `ListUsers` when v2 resolution might produce a different result than v1 for the same query. Note that v2 has not been implemented yet for these endpoints; these logs purely add visibility for a future v1 deprecation, and no operator action is required. [#3182](https://github.com/openfga/openfga/pull/3182)
+
+### Changed
+- Extended experimental `weighted_graph_check` to `BatchCheck`: with the flag enabled, each item in the batch is evaluated using the weighted graph algorithm, with per-item fallback to the standard algorithm on non-terminal errors. [#3154](https://github.com/openfga/openfga/pull/3154)
+- Use `proto.MarshalOptions{Deterministic: true}` when serializing authorization models to the `serialized_protobuf` column, ensuring consistent stored bytes within a given OpenFGA version for models with map-keyed type definitions. [#3171](https://github.com/openfga/openfga/pull/3171)
+- The `in_cidr` condition now treats IPv4-mapped IPv6 addresses as their IPv4 equivalents (RFC 4291 §2.5.5.2), so `::ffff:192.168.1.1` matches an IPv4 CIDR such as `192.168.1.0/24`. See `internal/condition/types/ipaddress.go`. [#3181](https://github.com/openfga/openfga/pull/3181)
+
+## [1.18.0] - 2026-06-16
+### Fixed
+- Use `crypto/subtle.ConstantTimeCompare` for preshared key authentication to close a timing side-channel where the prior map lookup could reveal information about valid key bytes. [#3168](https://github.com/openfga/openfga/pull/3168) Thanks to [@geo-chen](https://github.com/geo-chen) for reporting this.
+
+### Security
+- Fixed identifier comparison on the MySQL backend to be case-sensitive, matching Postgres and SQLite. Ships schema migrations 008, which require a maintenance window — see the [operator runbook](assets/migrations/mysql/collation_migrations.md) before upgrading. Resolves [CVE-2026-55170](https://github.com/openfga/openfga/security/advisories/GHSA-cf98-j28v-49v6). Thank you [@sahajamoth](https://github.com/sahajamoth) for bringing this to our attention.
+- Enforce that `authn.oidc.issuer` and `authn.oidc.audience` are both set when `authn.method` is `oidc`. Previously, omitting `--authn-oidc-audience` caused the JWT `aud` claim to be silently skipped during token validation, allowing any validly-signed token from the trusted issuer to be accepted regardless of its intended audience. OpenFGA will now refuse to start if either value is missing. Resolves [CVE-2026-55689](https://github.com/openfga/openfga/security/advisories/GHSA-hcxc-wf8j-23hv). Thank you [@0xVijay](https://github.com/0xVijay) for bringing this to our attention.
+
+## [1.17.1] - 2026-06-05
+### Changed
+- Update PR workflow benchmark comparison to be less flakey. [#3153](https://github.com/openfga/openfga/pull/3153)
+
+### Fixed
+- Fixed experimental `weighted_graph_check` falling back to the standard algorithm on errors that v1 would reject identically or that should not be retried. `ErrTransactionThrottled`, `check.ErrValidation`, `check.ErrInvalidUser`, and `*tuple.InvalidTupleError` (from contextual-tuple validation) are now returned directly instead of triggering a v1 retry. [#3150](https://github.com/openfga/openfga/pull/3150)
+- Fixed a race where an iterator cache entry flushed concurrently with a write could survive cache controller invalidation checks, causing stale tuples to be returned to subsequent requests. [#3155](https://github.com/openfga/openfga/pull/3155) Thanks to [@0xmrma](https://github.com/0xmrma) for reporting this bug.
+- Fixed `ReadChanges` pagination erroring past the first page when an object type name contains `|`, and tightened `Deserialize` to reject tokens with an empty ULID segment rather than silently restarting pagination from the beginning. [#3152](https://github.com/openfga/openfga/pull/3152)
+
+### Security
+- Update toolchain Go version to 1.26.4 to address the Go standard library vulnerabilities documented in the [Go 1.26.4 release notes](https://go.dev/doc/devel/release#go1.26.4). [#3159](https://github.com/openfga/openfga/pull/3159)
+- Update grpc-health-probe to `v0.4.52`, rebuilt with Go 1.26.4, so released images no longer ship the Go standard library vulnerabilities fixed in the [Go 1.26.4 release notes](https://go.dev/doc/devel/release#go1.26.4). [#3164](https://github.com/openfga/openfga/pull/3164) Thanks [@Keralin](https://github.com/Keralin)!
+
+## [1.17.0] - 2026-06-02
+### Added
+- Added a configurable trace sampler via `trace.sampler` (`OPENFGA_TRACE_SAMPLER` / `OTEL_TRACES_SAMPLER`), supporting the standard OpenTelemetry strategies `always_on`, `always_off`, `traceidratio`, `parentbased_always_on`, `parentbased_always_off`, and `parentbased_traceidratio`. This lets OpenFGA honor upstream parent sampling decisions when running as a downstream service. Defaults to `traceidratio` to preserve existing behavior. [#3072](https://github.com/openfga/openfga/pull/3072) Thanks [@armujahid](https://github.com/armujahid)!
+
+### Changed
+- Redesigned cache key generation to use TLV (type-length-value) binary encoding, eliminating collision risk from string concatenation and adding per-process hash seeding to prevent hash-flooding attacks. [#3148](https://github.com/openfga/openfga/pull/3148)
 
 ## [1.16.1] - 2026-05-28
 ### Changed
@@ -1656,7 +1699,11 @@ Re-release of `v0.3.5` because the go module proxy cached a prior commit of the 
 - Memory storage adapter implementation
 - Early support for preshared key or OIDC authentication methods
 
-[Unreleased]: https://github.com/openfga/openfga/compare/v1.16.1...HEAD
+[Unreleased]: https://github.com/openfga/openfga/compare/v1.18.1...HEAD
+[1.18.1]: https://github.com/openfga/openfga/compare/v1.18.0...v1.18.1
+[1.18.0]: https://github.com/openfga/openfga/compare/v1.17.1...v1.18.0
+[1.17.1]: https://github.com/openfga/openfga/compare/v1.17.0...v1.17.1
+[1.17.0]: https://github.com/openfga/openfga/compare/v1.16.1...v1.17.0
 [1.16.1]: https://github.com/openfga/openfga/compare/v1.16.0...v1.16.1
 [1.16.0]: https://github.com/openfga/openfga/compare/v1.15.1...v1.16.0
 [1.15.1]: https://github.com/openfga/openfga/compare/v1.15.0...v1.15.1
