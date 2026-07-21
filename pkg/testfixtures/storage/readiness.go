@@ -13,9 +13,16 @@ import (
 // waitForDatabase attempts to establish a connection to the database
 // and ping it until it's ready or a timeout occurs.
 func waitForDatabase(driverName, uri string) error { //nolint:unparam
+	return waitForDatabaseWithTimeout(driverName, uri, 60*time.Second)
+}
+
+// waitForDatabaseWithTimeout is like [waitForDatabase] with a caller-provided
+// maximum wait, for engines whose containers are slower to accept connections
+// (e.g. SQL Server).
+func waitForDatabaseWithTimeout(driverName, uri string, maxElapsedTime time.Duration) error {
 	backoffPolicy := backoff.NewExponentialBackOff(
 		backoff.WithInitialInterval(100*time.Millisecond),
-		backoff.WithMaxElapsedTime(120*time.Second),
+		backoff.WithMaxElapsedTime(maxElapsedTime),
 	)
 
 	err := backoff.Retry(func() error {

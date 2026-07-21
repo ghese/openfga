@@ -129,7 +129,7 @@ type DatastoreMetricsConfig struct {
 
 // DatastoreConfig defines OpenFGA server configurations for datastore specific settings.
 type DatastoreConfig struct {
-	// Engine is the datastore engine to use (e.g. 'memory', 'postgres', 'mysql', 'sqlite')
+	// Engine is the datastore engine to use (e.g. 'memory', 'postgres', 'mysql', 'sqlite', 'azure')
 	Engine            string
 	URI               string `json:"-"` // private field, won't be logged
 	SecondaryURI      string `json:"-"` // private field, won't be logged

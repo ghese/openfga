@@ -187,8 +187,9 @@ dev-run: $(GO_BIN)/CompileDaemon $(GO_BIN)/openfga ## Run the OpenFGA server wit
 			;; \
 		"azure") \
 			echo "==> Running OpenFGA with Azure SQL data storage"; \
-			docker run -d --name mssql -e 'ACCEPT_EULA=Y' -e 'SA_PASSWORD=YourStrong@Pass1' -p 1433:1433 mcr.microsoft.com/mssql/server:2022-latest > /dev/null 2>&1 || docker start mssql; \
+			docker run -d --name mssql -e 'ACCEPT_EULA=Y' -e 'MSSQL_SA_PASSWORD=YourStrong@Pass1' -p 1433:1433 mcr.microsoft.com/mssql/server:2022-latest > /dev/null 2>&1 || docker start mssql; \
 			sleep 30; \
+			docker exec mssql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'YourStrong@Pass1' -C -Q "IF DB_ID('openfga') IS NULL CREATE DATABASE openfga;"; \
 			openfga migrate --datastore-engine azure --datastore-uri 'sqlserver://sa:YourStrong@Pass1@localhost:1433?database=openfga'; \
 			CompileDaemon -graceful-kill -build='make install' -command="openfga run --datastore-engine azure --datastore-uri sqlserver://sa:YourStrong@Pass1@localhost:1433?database=openfga"; \
 			break; \

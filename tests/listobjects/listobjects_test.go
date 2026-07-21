@@ -36,9 +36,7 @@ func TestMatrixAzure(t *testing.T) {
 
 func runMatrixWithEngine(t *testing.T, engine string) {
 	t.Cleanup(func() {
-		// go-winio's ioCompletionProcessor is a process-lifetime goroutine created by the
-		// Docker client's named-pipe transport on Windows; it is not a leak.
-		goleak.VerifyNone(t, goleak.IgnoreAnyFunction("github.com/Microsoft/go-winio.ioCompletionProcessor"))
+		goleak.VerifyNone(t)
 	})
 
 	experimentals := []string{config.ExperimentalCheckOptimizations, config.ExperimentalListObjectsOptimizations}
@@ -77,12 +75,7 @@ func testRunAll(t *testing.T, engine string) {
 		// created by github.com/go-sql-driver/mysql.(*mysqlConn).startWatcher in goroutine 60029
 		// 	/home/runner/go/pkg/mod/github.com/go-sql-driver/mysql@v1.8.1/connection.go:625 +0x1dd
 		// ]
-		goleak.VerifyNone(t,
-			goleak.IgnoreTopFunction("github.com/go-sql-driver/mysql.(*mysqlConn).startWatcher.func1"),
-			// go-winio's ioCompletionProcessor is a process-lifetime goroutine created by the
-			// Docker client's named-pipe transport on Windows; it is not a leak.
-			goleak.IgnoreAnyFunction("github.com/Microsoft/go-winio.ioCompletionProcessor"),
-		)
+		goleak.VerifyNone(t, goleak.IgnoreTopFunction("github.com/go-sql-driver/mysql.(*mysqlConn).startWatcher.func1"))
 	})
 	cfg := testutils.MustDefaultConfigForParallelTests()
 	cfg.Experimentals = append(cfg.Experimentals, config.ExperimentalCheckOptimizations)

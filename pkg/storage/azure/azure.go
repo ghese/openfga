@@ -34,6 +34,7 @@ func startTrace(ctx context.Context, name string) (context.Context, trace.Span) 
 	return tracer.Start(ctx, "azure."+name)
 }
 
+// Datastore provides an Azure SQL Database / SQL Server based implementation of [storage.OpenFGADatastore].
 type Datastore struct {
 	stbl                   sq.StatementBuilderType
 	db                     *sql.DB
@@ -115,6 +116,7 @@ func hasPrefixFold(s, prefix string) bool {
 	return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
 }
 
+// New creates a new [Datastore] storage.
 func New(uri string, cfg *sqlcommon.Config) (*Datastore, error) {
 	uri, err := ApplyCredentials(uri, cfg.Username, cfg.Password)
 	if err != nil {
@@ -132,6 +134,7 @@ func New(uri string, cfg *sqlcommon.Config) (*Datastore, error) {
 	return NewWithDB(db, cfg)
 }
 
+// NewWithDB creates a new [Datastore] storage with the provided database connection.
 func NewWithDB(db *sql.DB, cfg *sqlcommon.Config) (*Datastore, error) {
 	if cfg.MaxIdleConns != 0 {
 		db.SetMaxIdleConns(cfg.MaxIdleConns)
@@ -172,6 +175,7 @@ func NewWithDB(db *sql.DB, cfg *sqlcommon.Config) (*Datastore, error) {
 	}, nil
 }
 
+// Close see [storage.OpenFGADatastore].Close.
 func (s *Datastore) Close() {
 	if s.dbStatsCollector != nil {
 		prometheus.Unregister(s.dbStatsCollector)
@@ -179,6 +183,7 @@ func (s *Datastore) Close() {
 	s.db.Close()
 }
 
+// Read see [storage.RelationshipTupleReader].Read.
 func (s *Datastore) Read(
 	ctx context.Context,
 	store string,
@@ -191,6 +196,7 @@ func (s *Datastore) Read(
 	return s.read(ctx, store, filter, nil)
 }
 
+// ReadPage see [storage.RelationshipTupleReader].ReadPage.
 func (s *Datastore) ReadPage(ctx context.Context, store string, filter storage.ReadFilter, options storage.ReadPageOptions) ([]*openfgav1.Tuple, string, error) {
 	ctx, span := startTrace(ctx, "ReadPage")
 	defer span.End()
@@ -254,6 +260,7 @@ func (s *Datastore) read(ctx context.Context, store string, filter storage.ReadF
 	return sqlcommon.NewSQLTupleIterator(sqlcommon.NewSBIteratorQuery(sb), HandleSQLError), nil
 }
 
+// Write see [storage.RelationshipTupleWriter].Write.
 func (s *Datastore) Write(
 	ctx context.Context,
 	store string,
@@ -267,68 +274,16 @@ func (s *Datastore) Write(
 	return s.write(ctx, store, deletes, writes, storage.NewTupleWriteOptions(opts...), time.Now().UTC())
 }
 
-type tupleLockKey struct {
-	objectType string
-	objectID   string
-	relation   string
-	user       string
-	userType   string
-}
-
-func makeTupleLockKeys(deletes storage.Deletes, writes storage.Writes) []tupleLockKey {
-	keys := make([]tupleLockKey, 0, len(deletes)+len(writes))
-
-	seen := make(map[string]struct{}, cap(keys))
-	add := func(object, relation, user string) {
-		objectType, objectID := tupleUtils.SplitObject(object)
-		k := tupleLockKey{
-			objectType: objectType,
-			objectID:   objectID,
-			relation:   relation,
-			user:       user,
-			userType:   string(tupleUtils.GetUserTypeFromUser(user)),
-		}
-		s := strings.Join([]string{
-			k.objectType,
-			k.objectID,
-			k.relation,
-			k.user,
-			k.userType,
-		}, "\x00")
-		if _, ok := seen[s]; ok {
-			return
-		}
-		seen[s] = struct{}{}
-		keys = append(keys, k)
-	}
-
-	for _, tk := range deletes {
-		add(tk.GetObject(), tk.GetRelation(), tk.GetUser())
-	}
-	for _, tk := range writes {
-		add(tk.GetObject(), tk.GetRelation(), tk.GetUser())
-	}
-
-	return keys
-}
-
-func (s *Datastore) selectExistingRowsForWrite(ctx context.Context, store string, keys []tupleLockKey, txn *sql.Tx, existing map[string]*openfgav1.Tuple) error {
-	orConditions := sq.Or{}
-	for _, k := range keys {
-		orConditions = append(orConditions, sq.And{
-			sq.Eq{"object_type": k.objectType},
-			sq.Eq{"object_id": k.objectID},
-			sq.Eq{"relation": k.relation},
-			sq.Eq{"_user": k.user},
-			sq.Eq{"user_type": k.userType},
-		})
-	}
-
+func (s *Datastore) selectExistingRowsForWrite(ctx context.Context, store string, keys []sqlcommon.TupleLockKey, txn *sql.Tx, existing map[string]*openfgav1.Tuple) error {
 	selectBuilder := s.stbl.
 		Select(sqlcommon.SQLIteratorColumns()...).
+		// SQL Server does not support SELECT ... FOR UPDATE; UPDLOCK/ROWLOCK
+		// table hints take update locks on the selected rows instead.
 		From("tuple WITH (UPDLOCK, ROWLOCK)").
 		Where(sq.Eq{"store": store}).
-		Where(orConditions).
+		// SQL Server does not support row-constructor IN, so the composite-key
+		// point lookups are expressed as an OR of per-key AND conditions.
+		Where(sqlcommon.BuildORConditions(keys)).
 		RunWith(txn)
 
 	iter := sqlcommon.NewSQLTupleIterator(sqlcommon.NewSBIteratorQuery(selectBuilder), handleWriteSQLError)
@@ -358,7 +313,9 @@ func (s *Datastore) write(
 	}
 	defer func() { _ = txn.Rollback() }()
 
-	lockKeys := makeTupleLockKeys(deletes, writes)
+	// The keys are deduped and sorted deterministically to keep lock
+	// acquisition order stable across concurrent write transactions.
+	lockKeys := sqlcommon.MakeTupleLockKeys(deletes, writes)
 	total := len(lockKeys)
 	if total == 0 {
 		return nil
@@ -495,6 +452,7 @@ func (s *Datastore) write(
 	return nil
 }
 
+// ReadUserTuple see [storage.RelationshipTupleReader].ReadUserTuple.
 func (s *Datastore) ReadUserTuple(ctx context.Context, store string, filter storage.ReadUserTupleFilter, _ storage.ReadUserTupleOptions) (*openfgav1.Tuple, error) {
 	ctx, span := startTrace(ctx, "ReadUserTuple")
 	defer span.End()
@@ -554,6 +512,7 @@ func (s *Datastore) ReadUserTuple(ctx context.Context, store string, filter stor
 	return record.AsTuple(), nil
 }
 
+// ReadUsersetTuples see [storage.RelationshipTupleReader].ReadUsersetTuples.
 func (s *Datastore) ReadUsersetTuples(
 	ctx context.Context,
 	store string,
@@ -606,6 +565,7 @@ func (s *Datastore) ReadUsersetTuples(
 	return sqlcommon.NewSQLTupleIterator(sqlcommon.NewSBIteratorQuery(sb), HandleSQLError), nil
 }
 
+// ReadStartingWithUser see [storage.RelationshipTupleReader].ReadStartingWithUser.
 func (s *Datastore) ReadStartingWithUser(
 	ctx context.Context,
 	store string,
@@ -647,10 +607,12 @@ func (s *Datastore) ReadStartingWithUser(
 	return sqlcommon.NewSQLTupleIterator(sqlcommon.NewSBIteratorQuery(builder), HandleSQLError), nil
 }
 
+// MaxTuplesPerWrite see [storage.RelationshipTupleWriter].MaxTuplesPerWrite.
 func (s *Datastore) MaxTuplesPerWrite() int {
 	return s.maxTuplesPerWriteField
 }
 
+// ReadAuthorizationModel see [storage.AuthorizationModelReadBackend].ReadAuthorizationModel.
 func (s *Datastore) ReadAuthorizationModel(ctx context.Context, store string, modelID string) (*openfgav1.AuthorizationModel, error) {
 	ctx, span := startTrace(ctx, "ReadAuthorizationModel")
 	defer span.End()
@@ -658,6 +620,7 @@ func (s *Datastore) ReadAuthorizationModel(ctx context.Context, store string, mo
 	return sqlcommon.ReadAuthorizationModel(ctx, s.dbInfo, store, modelID)
 }
 
+// ReadAuthorizationModels see [storage.AuthorizationModelReadBackend].ReadAuthorizationModels.
 func (s *Datastore) ReadAuthorizationModels(ctx context.Context, store string, options storage.ReadAuthorizationModelsOptions) ([]*openfgav1.AuthorizationModel, string, error) {
 	ctx, span := startTrace(ctx, "ReadAuthorizationModels")
 	defer span.End()
@@ -718,6 +681,7 @@ func (s *Datastore) ReadAuthorizationModels(ctx context.Context, store string, o
 	return models, token, nil
 }
 
+// FindLatestAuthorizationModel see [storage.AuthorizationModelReadBackend].FindLatestAuthorizationModel.
 func (s *Datastore) FindLatestAuthorizationModel(ctx context.Context, store string) (*openfgav1.AuthorizationModel, error) {
 	ctx, span := startTrace(ctx, "FindLatestAuthorizationModel")
 	defer span.End()
@@ -725,10 +689,12 @@ func (s *Datastore) FindLatestAuthorizationModel(ctx context.Context, store stri
 	return sqlcommon.FindLatestAuthorizationModel(ctx, s.dbInfo, store)
 }
 
+// MaxTypesPerAuthorizationModel see [storage.TypeDefinitionWriteBackend].MaxTypesPerAuthorizationModel.
 func (s *Datastore) MaxTypesPerAuthorizationModel() int {
 	return s.maxTypesPerModelField
 }
 
+// WriteAuthorizationModel see [storage.TypeDefinitionWriteBackend].WriteAuthorizationModel.
 func (s *Datastore) WriteAuthorizationModel(ctx context.Context, store string, model *openfgav1.AuthorizationModel) error {
 	ctx, span := startTrace(ctx, "WriteAuthorizationModel")
 	defer span.End()
@@ -736,6 +702,7 @@ func (s *Datastore) WriteAuthorizationModel(ctx context.Context, store string, m
 	return sqlcommon.WriteAuthorizationModel(ctx, s.dbInfo, store, model)
 }
 
+// CreateStore adds a new store to storage.
 func (s *Datastore) CreateStore(ctx context.Context, store *openfgav1.Store) (*openfgav1.Store, error) {
 	ctx, span := startTrace(ctx, "CreateStore")
 	defer span.End()
@@ -785,6 +752,7 @@ func (s *Datastore) CreateStore(ctx context.Context, store *openfgav1.Store) (*o
 	}, nil
 }
 
+// GetStore retrieves the details of a specific store using its storeID.
 func (s *Datastore) GetStore(ctx context.Context, id string) (*openfgav1.Store, error) {
 	ctx, span := startTrace(ctx, "GetStore")
 	defer span.End()
@@ -816,6 +784,7 @@ func (s *Datastore) GetStore(ctx context.Context, id string) (*openfgav1.Store, 
 	}, nil
 }
 
+// ListStores provides a paginated list of all stores present in the storage.
 func (s *Datastore) ListStores(ctx context.Context, options storage.ListStoresOptions) ([]*openfgav1.Store, string, error) {
 	ctx, span := startTrace(ctx, "ListStores")
 	defer span.End()
@@ -881,6 +850,7 @@ func (s *Datastore) ListStores(ctx context.Context, options storage.ListStoresOp
 	return stores, "", nil
 }
 
+// DeleteStore removes a store from storage.
 func (s *Datastore) DeleteStore(ctx context.Context, id string) error {
 	ctx, span := startTrace(ctx, "DeleteStore")
 	defer span.End()
@@ -897,6 +867,7 @@ func (s *Datastore) DeleteStore(ctx context.Context, id string) error {
 	return nil
 }
 
+// WriteAssertions see [storage.AssertionsBackend].WriteAssertions.
 func (s *Datastore) WriteAssertions(ctx context.Context, store, modelID string, assertions []*openfgav1.Assertion) error {
 	ctx, span := startTrace(ctx, "WriteAssertions")
 	defer span.End()
@@ -926,6 +897,7 @@ func (s *Datastore) WriteAssertions(ctx context.Context, store, modelID string, 
 	return nil
 }
 
+// ReadAssertions see [storage.AssertionsBackend].ReadAssertions.
 func (s *Datastore) ReadAssertions(ctx context.Context, store, modelID string) ([]*openfgav1.Assertion, error) {
 	ctx, span := startTrace(ctx, "ReadAssertions")
 	defer span.End()
@@ -956,6 +928,7 @@ func (s *Datastore) ReadAssertions(ctx context.Context, store, modelID string) (
 	return assertions.GetAssertions(), nil
 }
 
+// ReadChanges see [storage.ChangelogBackend].ReadChanges.
 func (s *Datastore) ReadChanges(ctx context.Context, store string, filter storage.ReadChangesFilter, options storage.ReadChangesOptions) ([]*openfgav1.TupleChange, string, error) {
 	ctx, span := startTrace(ctx, "ReadChanges")
 	defer span.End()
@@ -1055,6 +1028,7 @@ func (s *Datastore) ReadChanges(ctx context.Context, store string, filter storag
 	return changes, ulid, nil
 }
 
+// IsReady see [sqlcommon.IsReady].
 func (s *Datastore) IsReady(ctx context.Context) (storage.ReadinessStatus, error) {
 	versionReady, err := sqlcommon.IsReady(ctx, s.versionReady, s.db)
 	if err != nil {
@@ -1079,6 +1053,8 @@ var throttlingErrorNumbers = map[int32]struct{}{
 	49920: {}, // too many operations in progress
 }
 
+// HandleSQLError processes an SQL error and converts it into a more
+// specific error type based on the nature of the SQL error.
 func HandleSQLError(err error, args ...interface{}) error {
 	if errors.Is(err, sql.ErrNoRows) {
 		return storage.ErrNotFound

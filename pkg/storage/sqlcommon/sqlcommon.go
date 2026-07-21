@@ -676,6 +676,23 @@ func BuildRowConstructorIN(keys []TupleLockKey) (string, []interface{}) {
 	return sb.String(), args
 }
 
+// BuildORConditions converts lock keys into an OR of per-key AND equality
+// conditions. It is an alternative to [BuildRowConstructorIN] for dialects
+// that do not support row-constructor IN (e.g. SQL Server).
+func BuildORConditions(keys []TupleLockKey) sq.Or {
+	orConditions := make(sq.Or, 0, len(keys))
+	for _, k := range keys {
+		orConditions = append(orConditions, sq.And{
+			sq.Eq{"object_type": k.objectType},
+			sq.Eq{"object_id": k.objectID},
+			sq.Eq{"relation": k.relation},
+			sq.Eq{"_user": k.user},
+			sq.Eq{"user_type": k.userType},
+		})
+	}
+	return orConditions
+}
+
 // selectExistingRowsForWrite selects existing rows for the given keys and locks them FOR UPDATE.
 // The existing rows are added to the existing map.
 func selectExistingRowsForWrite(ctx context.Context, dbInfo *DBInfo, store string, keys []TupleLockKey, txn *sql.Tx, existing map[string]*openfgav1.Tuple) error {
@@ -765,7 +782,10 @@ func GetDeleteWriteChangelogItems(
 			tk.GetRelation(),
 			tk.GetUser(),
 			"",
-			[]byte(nil), // Redact condition info for Deletes since we only need the base triplet (object, relation, user).
+			// Redact condition info for Deletes since we only need the base triplet (object, relation, user).
+			// The nil must be typed ([]byte(nil)): the go-mssqldb driver rejects untyped nil
+			// parameters; other drivers treat both identically.
+			[]byte(nil),
 			int32(openfgav1.TupleOperation_TUPLE_OPERATION_DELETE),
 			id,
 			sq.Expr(nowExpr),
@@ -1025,6 +1045,8 @@ func WriteAuthorizationModel(
 		return err
 	}
 
+	// type_definition is a typed nil ([]byte(nil)): the go-mssqldb driver rejects
+	// untyped nil parameters; other drivers treat both identically.
 	_, err = dbInfo.stbl.
 		Insert("authorization_model").
 		Columns("store", "authorization_model_id", "schema_version", "type", "type_definition", "serialized_protobuf").

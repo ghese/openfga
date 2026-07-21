@@ -62,9 +62,7 @@ func TestMatrixAzure(t *testing.T) {
 
 func runMatrixWithEngine(t *testing.T, engine string) {
 	t.Cleanup(func() {
-		// go-winio's ioCompletionProcessor is a process-lifetime goroutine created by the
-		// Docker client's named-pipe transport on Windows; it is not a leak.
-		goleak.VerifyNone(t, goleak.IgnoreAnyFunction("github.com/Microsoft/go-winio.ioCompletionProcessor"))
+		goleak.VerifyNone(t)
 	})
 
 	clientWithExperimentals := tests.BuildClientInterface(t, engine, []string{config.ExperimentalCheckOptimizations})
@@ -356,9 +354,7 @@ func TestServerLogs(t *testing.T) {
 
 func testRunAll(t *testing.T, engine string, flags ...string) {
 	t.Cleanup(func() {
-		// go-winio's ioCompletionProcessor is a process-lifetime goroutine created by the
-		// Docker client's named-pipe transport on Windows; it is not a leak.
-		goleak.VerifyNone(t, goleak.IgnoreAnyFunction("github.com/Microsoft/go-winio.ioCompletionProcessor"))
+		goleak.VerifyNone(t)
 	})
 	cfg := testutils.MustDefaultConfigForParallelTests()
 	cfg.Experimentals = append(cfg.Experimentals, flags...)

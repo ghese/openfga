@@ -216,7 +216,7 @@ func bootstrapAzureContainer(ctx context.Context, docker *testutils.DockerClient
 	}
 
 	dbURI := azureConnectionURI("localhost", port, "master", azureUsername, azurePassword)
-	if err := waitForDatabase("sqlserver", dbURI); err != nil {
+	if err := waitForDatabaseWithTimeout("sqlserver", dbURI, 120*time.Second); err != nil {
 		return nil, fmt.Errorf("wait for azure database: %w", err)
 	}
 
@@ -229,7 +229,7 @@ func bootstrapAzureContainer(ctx context.Context, docker *testutils.DockerClient
 	}
 
 	waitForDBURI := azureConnectionURI("localhost", port, azureTemplateDB, azureUsername, azurePassword)
-	if err := waitForDatabase("sqlserver", waitForDBURI); err != nil {
+	if err := waitForDatabaseWithTimeout("sqlserver", waitForDBURI, 120*time.Second); err != nil {
 		return nil, fmt.Errorf("wait for template database: %w", err)
 	}
 
