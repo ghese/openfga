@@ -5,11 +5,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
 	mssql "github.com/microsoft/go-mssqldb"
+	"github.com/microsoft/go-mssqldb/azuread"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"go.opentelemetry.io/otel"
@@ -45,8 +47,85 @@ type Datastore struct {
 
 var _ storage.OpenFGADatastore = (*Datastore)(nil)
 
+// ErrCredentialOverridesUnsupportedFormat is returned when username/password
+// overrides are requested for a connection string format that cannot be
+// rewritten safely.
+var ErrCredentialOverridesUnsupportedFormat = errors.New("credential overrides are not supported for the odbc connection string format")
+
+// ApplyCredentials overrides the username and password in an Azure SQL
+// connection string. Both the URL format (sqlserver://) and the ADO/DSN
+// format (semicolon-delimited key=value pairs) are supported. If both
+// username and password are empty, the connection string is returned
+// unchanged.
+func ApplyCredentials(uri, username, password string) (string, error) {
+	if username == "" && password == "" {
+		return uri, nil
+	}
+	// Match scheme prefixes case-insensitively so a mixed-case scheme (e.g.
+	// "SqlServer://") is not mistaken for the ADO/DSN format and mangled by
+	// the key=value append below.
+	if hasPrefixFold(uri, "odbc:") {
+		return "", ErrCredentialOverridesUnsupportedFormat
+	}
+	if hasPrefixFold(uri, "sqlserver://") {
+		dbURI, err := url.Parse(uri)
+		if err != nil {
+			return "", fmt.Errorf("invalid database uri: %w", err)
+		}
+		var user, pass string
+		if dbURI.User != nil {
+			user = dbURI.User.Username()
+			pass, _ = dbURI.User.Password()
+		}
+		if username != "" {
+			user = username
+		}
+		if password != "" {
+			pass = password
+		}
+		if pass == "" {
+			dbURI.User = url.User(user)
+		} else {
+			dbURI.User = url.UserPassword(user, pass)
+		}
+		return dbURI.String(), nil
+	}
+
+	// ADO/DSN format: when a key appears multiple times the last occurrence
+	// wins, so appending the overrides preserves every other parameter.
+	var sb strings.Builder
+	sb.WriteString(strings.TrimRight(uri, "; "))
+	if username != "" {
+		sb.WriteString(";user id=" + quoteADOValue(username))
+	}
+	if password != "" {
+		sb.WriteString(";password=" + quoteADOValue(password))
+	}
+	return sb.String(), nil
+}
+
+// quoteADOValue double-quotes an ADO connection string value so it may contain
+// semicolons or whitespace; embedded double quotes are escaped by doubling.
+func quoteADOValue(v string) string {
+	return `"` + strings.ReplaceAll(v, `"`, `""`) + `"`
+}
+
+// hasPrefixFold reports whether s begins with prefix, ignoring case.
+func hasPrefixFold(s, prefix string) bool {
+	return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
+}
+
 func New(uri string, cfg *sqlcommon.Config) (*Datastore, error) {
-	db, err := sql.Open("sqlserver", uri)
+	uri, err := ApplyCredentials(uri, cfg.Username, cfg.Password)
+	if err != nil {
+		return nil, err
+	}
+
+	// The azuread driver supports both SQL authentication and Entra ID
+	// authentication (e.g. `authentication=ActiveDirectoryManagedIdentity`);
+	// with no `authentication` parameter it behaves like the plain sqlserver
+	// driver.
+	db, err := sql.Open(azuread.DriverName, uri)
 	if err != nil {
 		return nil, fmt.Errorf("initialize azure sql connection: %w", err)
 	}
@@ -252,7 +331,7 @@ func (s *Datastore) selectExistingRowsForWrite(ctx context.Context, store string
 		Where(orConditions).
 		RunWith(txn)
 
-	iter := sqlcommon.NewSQLTupleIterator(sqlcommon.NewSBIteratorQuery(selectBuilder), HandleSQLError)
+	iter := sqlcommon.NewSQLTupleIterator(sqlcommon.NewSBIteratorQuery(selectBuilder), handleWriteSQLError)
 	defer iter.Stop()
 
 	items, _, err := iter.ToArray(ctx, storage.PaginationOptions{PageSize: len(keys)})
@@ -275,7 +354,7 @@ func (s *Datastore) write(
 ) error {
 	txn, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
-		return HandleSQLError(err)
+		return handleWriteSQLError(err)
 	}
 	defer func() { _ = txn.Rollback() }()
 
@@ -324,12 +403,12 @@ func (s *Datastore) write(
 			RunWith(txn).
 			ExecContext(ctx)
 		if err != nil {
-			return HandleSQLError(err)
+			return handleWriteSQLError(err)
 		}
 
 		rowsAffected, err := res.RowsAffected()
 		if err != nil {
-			return HandleSQLError(err)
+			return handleWriteSQLError(err)
 		}
 
 		if rowsAffected != int64(len(deleteConditionsBatch)) {
@@ -368,7 +447,7 @@ func (s *Datastore) write(
 			RunWith(txn).
 			ExecContext(ctx)
 		if err != nil {
-			dberr := HandleSQLError(err)
+			dberr := handleWriteSQLError(err)
 			if errors.Is(dberr, storage.ErrCollision) {
 				return storage.ErrWriteConflictOnInsert
 			}
@@ -405,12 +484,12 @@ func (s *Datastore) write(
 
 		_, err = changelogBuilder.RunWith(txn).ExecContext(ctx)
 		if err != nil {
-			return HandleSQLError(err)
+			return handleWriteSQLError(err)
 		}
 	}
 
 	if err := txn.Commit(); err != nil {
-		return HandleSQLError(err)
+		return handleWriteSQLError(err)
 	}
 
 	return nil
@@ -986,6 +1065,20 @@ func (s *Datastore) IsReady(ctx context.Context) (storage.ReadinessStatus, error
 	return versionReady, nil
 }
 
+// throttlingErrorNumbers are Azure SQL Database error numbers that indicate
+// the service rejected the request due to resource limits or throttling.
+// They map to storage.ErrTransactionThrottled, which the API layer translates
+// to a retryable 429 ResourceExhausted.
+// https://learn.microsoft.com/azure/azure-sql/database/troubleshoot-common-errors-issues
+var throttlingErrorNumbers = map[int32]struct{}{
+	10928: {}, // resource limit (sessions/requests) reached
+	10929: {}, // resource governance limit reached
+	40501: {}, // service is currently busy
+	49918: {}, // not enough resources to process request
+	49919: {}, // too many create/update operations in progress
+	49920: {}, // too many operations in progress
+}
+
 func HandleSQLError(err error, args ...interface{}) error {
 	if errors.Is(err, sql.ErrNoRows) {
 		return storage.ErrNotFound
@@ -1001,7 +1094,24 @@ func HandleSQLError(err error, args ...interface{}) error {
 			}
 			return storage.ErrCollision
 		}
+		if _, ok := throttlingErrorNumbers[mssqlErr.Number]; ok {
+			return fmt.Errorf("%w (number %d): %w", storage.ErrTransactionThrottled, mssqlErr.Number, err)
+		}
 	}
 
 	return fmt.Errorf("sql error: %w", err)
+}
+
+// handleWriteSQLError extends HandleSQLError for the transactional write
+// path: a deadlock victim (error 1205) means the write transaction was rolled
+// back and the client can safely retry, so it is surfaced to the API layer as
+// a 409 Conflict via storage.ErrTransactionalWriteFailed. Read paths must not
+// use this mapping, since a 409 write-conflict error would be misleading for
+// a deadlocked read (possible on SQL Server without read committed snapshot).
+func handleWriteSQLError(err error, args ...interface{}) error {
+	var mssqlErr mssql.Error
+	if errors.As(err, &mssqlErr) && mssqlErr.Number == 1205 {
+		return fmt.Errorf("%w: %s", storage.ErrTransactionalWriteFailed, mssqlErr.Message)
+	}
+	return HandleSQLError(err, args...)
 }

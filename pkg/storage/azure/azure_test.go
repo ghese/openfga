@@ -2,10 +2,13 @@ package azure
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"testing"
 	"time"
 
+	mssql "github.com/microsoft/go-mssqldb"
+	"github.com/microsoft/go-mssqldb/msdsn"
 	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -620,4 +623,219 @@ func TestNew(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestApplyCredentials(t *testing.T) {
+	tests := []struct {
+		name         string
+		uri          string
+		username     string
+		password     string
+		wantUser     string
+		wantPassword string
+		wantErr      error
+	}{
+		{
+			name:         "no_overrides_returns_uri_unchanged",
+			uri:          "server=localhost;user id=sa;password=original;database=openfga",
+			wantUser:     "sa",
+			wantPassword: "original",
+		},
+		{
+			name:         "dsn_format_overrides_both",
+			uri:          "server=localhost;user id=sa;password=original;database=openfga;encrypt=true",
+			username:     "override-user",
+			password:     "override-pass",
+			wantUser:     "override-user",
+			wantPassword: "override-pass",
+		},
+		{
+			name:         "dsn_format_overrides_password_only",
+			uri:          "server=localhost;user id=sa;password=original;database=openfga",
+			password:     "override-pass",
+			wantUser:     "sa",
+			wantPassword: "override-pass",
+		},
+		{
+			name:         "dsn_format_password_with_special_characters",
+			uri:          "server=localhost;user id=sa;database=openfga",
+			password:     `p@ss;word="quoted"`,
+			wantUser:     "sa",
+			wantPassword: `p@ss;word="quoted"`,
+		},
+		{
+			name:         "dsn_format_trailing_semicolon",
+			uri:          "server=localhost;database=openfga;",
+			username:     "sa",
+			password:     "secret",
+			wantUser:     "sa",
+			wantPassword: "secret",
+		},
+		{
+			name:         "url_format_overrides_both",
+			uri:          "sqlserver://sa:original@localhost:1433?database=openfga",
+			username:     "override-user",
+			password:     "override-pass",
+			wantUser:     "override-user",
+			wantPassword: "override-pass",
+		},
+		{
+			name:         "url_format_overrides_username_only_preserves_password",
+			uri:          "sqlserver://sa:original@localhost:1433?database=openfga",
+			username:     "override-user",
+			wantUser:     "override-user",
+			wantPassword: "original",
+		},
+		{
+			name:     "url_format_username_only_no_existing_credentials",
+			uri:      "sqlserver://localhost:1433?database=openfga",
+			username: "sa",
+			wantUser: "sa",
+		},
+		{
+			name:         "url_format_no_existing_credentials",
+			uri:          "sqlserver://localhost:1433?database=openfga",
+			username:     "sa",
+			password:     "secret",
+			wantUser:     "sa",
+			wantPassword: "secret",
+		},
+		{
+			name:         "url_format_password_only_no_existing_credentials",
+			uri:          "sqlserver://localhost:1433?database=openfga",
+			password:     "secret",
+			wantUser:     "",
+			wantPassword: "secret",
+		},
+		{
+			name:         "url_format_unencoded_at_in_existing_password",
+			uri:          "sqlserver://sa:YourStrong@Pass1@localhost:1433?database=openfga",
+			username:     "override-user",
+			wantUser:     "override-user",
+			wantPassword: "YourStrong@Pass1",
+		},
+		{
+			name:         "url_format_override_password_with_at",
+			uri:          "sqlserver://sa:original@localhost:1433?database=openfga",
+			password:     "new@pass:word",
+			wantUser:     "sa",
+			wantPassword: "new@pass:word",
+		},
+		{
+			name:         "url_format_mixed_case_scheme",
+			uri:          "SqlServer://sa:original@localhost:1433?database=openfga",
+			password:     "override-pass",
+			wantUser:     "sa",
+			wantPassword: "override-pass",
+		},
+		{
+			name:     "odbc_format_unsupported",
+			uri:      "odbc:server=localhost;database=openfga",
+			username: "sa",
+			wantErr:  ErrCredentialOverridesUnsupportedFormat,
+		},
+		{
+			name:     "odbc_format_mixed_case_unsupported",
+			uri:      "ODBC:server=localhost;database=openfga",
+			username: "sa",
+			wantErr:  ErrCredentialOverridesUnsupportedFormat,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ApplyCredentials(tt.uri, tt.username, tt.password)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+
+			parsed, err := msdsn.Parse(got)
+			require.NoError(t, err)
+			require.Equal(t, tt.wantUser, parsed.User)
+			require.Equal(t, tt.wantPassword, parsed.Password)
+			require.Equal(t, "openfga", parsed.Database)
+		})
+	}
+}
+
+func TestHandleSQLError(t *testing.T) {
+	t.Run("no_rows_maps_to_not_found", func(t *testing.T) {
+		require.ErrorIs(t, HandleSQLError(sql.ErrNoRows), storage.ErrNotFound)
+	})
+
+	t.Run("duplicate_key_maps_to_collision", func(t *testing.T) {
+		err := HandleSQLError(mssql.Error{Number: 2627, Message: "duplicate key"})
+		require.ErrorIs(t, err, storage.ErrCollision)
+	})
+
+	t.Run("duplicate_key_with_tuple_key_maps_to_invalid_write_input", func(t *testing.T) {
+		tk := &openfgav1.TupleKey{Object: "document:1", Relation: "viewer", User: "user:anne"}
+		err := HandleSQLError(mssql.Error{Number: 2601, Message: "duplicate key"}, tk)
+		require.ErrorIs(t, err, storage.ErrInvalidWriteInput)
+		require.NotErrorIs(t, err, storage.ErrCollision)
+	})
+
+	t.Run("deadlock_not_mapped_on_read_paths", func(t *testing.T) {
+		err := HandleSQLError(mssql.Error{Number: 1205, Message: "deadlock victim"})
+		require.NotErrorIs(t, err, storage.ErrTransactionalWriteFailed)
+		require.ErrorContains(t, err, "sql error")
+	})
+
+	t.Run("throttling_errors_map_to_transaction_throttled", func(t *testing.T) {
+		for _, number := range []int32{10928, 10929, 40501, 49918, 49919, 49920} {
+			err := HandleSQLError(mssql.Error{Number: number, Message: "throttled"})
+			require.ErrorIs(t, err, storage.ErrTransactionThrottled, "error number %d", number)
+
+			var mssqlErr mssql.Error
+			require.ErrorAs(t, err, &mssqlErr, "error number %d", number)
+			require.Equal(t, number, mssqlErr.Number)
+		}
+	})
+
+	t.Run("availability_errors_not_mapped_to_throttled", func(t *testing.T) {
+		// Failover/reconfiguration errors are transient but not throttling;
+		// a 429 would be semantically wrong, so they stay generic.
+		for _, number := range []int32{4060, 40143, 40197, 40613} {
+			err := HandleSQLError(mssql.Error{Number: number, Message: "unavailable"})
+			require.NotErrorIs(t, err, storage.ErrTransactionThrottled, "error number %d", number)
+			require.ErrorContains(t, err, "sql error", "error number %d", number)
+		}
+	})
+
+	t.Run("other_errors_preserve_original_error", func(t *testing.T) {
+		original := mssql.Error{Number: 40613, Message: "database unavailable"}
+		err := HandleSQLError(original)
+		require.ErrorContains(t, err, "sql error")
+		var mssqlErr mssql.Error
+		require.ErrorAs(t, err, &mssqlErr)
+		require.Equal(t, int32(40613), mssqlErr.Number)
+	})
+
+	t.Run("other_errors_wrapped_generically", func(t *testing.T) {
+		err := HandleSQLError(mssql.Error{Number: 547, Message: "constraint violation"})
+		require.NotErrorIs(t, err, storage.ErrTransactionalWriteFailed)
+		require.NotErrorIs(t, err, storage.ErrTransactionThrottled)
+		require.ErrorContains(t, err, "sql error")
+	})
+}
+
+func TestHandleWriteSQLError(t *testing.T) {
+	t.Run("deadlock_maps_to_transactional_write_failed", func(t *testing.T) {
+		err := handleWriteSQLError(mssql.Error{Number: 1205, Message: "deadlock victim"})
+		require.ErrorIs(t, err, storage.ErrTransactionalWriteFailed)
+	})
+
+	t.Run("non_deadlock_errors_delegate_to_HandleSQLError", func(t *testing.T) {
+		require.ErrorIs(t, handleWriteSQLError(sql.ErrNoRows), storage.ErrNotFound)
+
+		err := handleWriteSQLError(mssql.Error{Number: 2627, Message: "duplicate key"})
+		require.ErrorIs(t, err, storage.ErrCollision)
+
+		err = handleWriteSQLError(mssql.Error{Number: 10928, Message: "resource limit reached"})
+		require.ErrorIs(t, err, storage.ErrTransactionThrottled)
+
+		err = handleWriteSQLError(mssql.Error{Number: 40613, Message: "database unavailable"})
+		require.ErrorContains(t, err, "sql error")
+	})
 }

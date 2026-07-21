@@ -13,6 +13,7 @@ import (
 
 	"github.com/openfga/openfga/assets"
 	"github.com/openfga/openfga/pkg/logger"
+	"github.com/openfga/openfga/pkg/storage/azure"
 	"github.com/openfga/openfga/pkg/storage/sqlite"
 )
 
@@ -35,7 +36,7 @@ type MigrationConfig struct {
 // 1. Explicitly control when OpenFGA migrations run
 // 2. Integrate OpenFGA's schema updates into their own migration workflows
 // 3. Perform versioned upgrades of the schema as needed
-// The function handles migrations for multiple database engines (postgres, mysql, sqlite) and supports
+// The function handles migrations for multiple database engines (postgres, mysql, sqlite, azure) and supports
 // both upgrading and downgrading to specific versions.
 func RunMigrations(cfg MigrationConfig) error {
 	goose.SetLogger(goose.NopLogger())
@@ -96,31 +97,19 @@ func RunMigrations(cfg MigrationConfig) error {
 		// Replace CLI uri with the one we just updated.
 		uri = dbURI.String()
 	case "azure":
-		driver = "sqlserver"
+		// The azuresql driver is registered by the azuread package (imported
+		// via pkg/storage/azure). It supports both SQL authentication and
+		// Entra ID authentication (`authentication=...` connection strings).
+		driver = "azuresql"
 		migrationsPath = assets.AzureMigrationDir
 
-		// Parse the database uri with url.Parse() and update username/password, if set via flags
-		if cfg.Username != "" || cfg.Password != "" {
-			dbURI, err := url.Parse(uri)
-			if err != nil {
-				return fmt.Errorf("invalid database uri: %w", err)
-			}
-			var username, password string
-			if dbURI.User != nil {
-				username = dbURI.User.Username()
-				password, _ = dbURI.User.Password()
-			}
-			if cfg.Username != "" {
-				username = cfg.Username
-			}
-			if cfg.Password != "" {
-				password = cfg.Password
-			}
-			dbURI.User = url.UserPassword(username, password)
-
-			// Replace CLI uri with the one we just updated.
-			uri = dbURI.String()
+		// Apply username/password overrides, if set via flags. Supports both
+		// the URL and the ADO/DSN connection string formats.
+		withCreds, err := azure.ApplyCredentials(uri, cfg.Username, cfg.Password)
+		if err != nil {
+			return err
 		}
+		uri = withCreds
 	case "sqlite":
 		driver = "sqlite"
 		migrationsPath = assets.SqliteMigrationDir

@@ -8,7 +8,9 @@ Try to keep listed changes to a concise bulleted list of simple explanations of 
 
 ## [Unreleased]
 ### Added
-- Added a new `azure` datastore engine supporting Azure SQL Database and SQL Server, usable via `--datastore-engine azure` with a `sqlserver://` connection URI for both `openfga run` and `openfga migrate`. Schema migrations live in `assets/migrations/azure` and use the binary collation `Latin1_General_BIN2` so identifier comparison is case-sensitive, matching the other SQL datastores.
+- Added a new `azure` datastore engine supporting Azure SQL Database and SQL Server, usable via `--datastore-engine azure` for both `openfga run` and `openfga migrate`. Schema migrations live in `assets/migrations/azure` and use the binary collation `Latin1_General_BIN2` so identifier comparison is case-sensitive, matching the other SQL datastores. See `docs/azure-sql-storage.md` for setup and reference.
+- The `azure` engine connects through the `go-mssqldb/azuread` driver, supporting Microsoft Entra ID authentication (e.g. `authentication=ActiveDirectoryManagedIdentity`) alongside SQL authentication, in both `sqlserver://` URL and DSN connection string formats. `--datastore-username` / `--datastore-password` overrides are honored in both formats.
+- Deadlocks during `azure` tuple writes surface as a retryable `409 Conflict`, consistent with the other SQL datastores' write-conflict handling. Azure SQL throttling errors (numbers 10928, 10929, 40501, 49918–49920) map to `storage.ErrTransactionThrottled` and surface as a retryable `429 ResourceExhausted`.
 - Extended experimental `weighted_graph_check` diagnostic logging to cover the `wildcard_with_exclusion` and `userset_with_exclusion` shapes: the log now fires when v2 Check rejects one of these shapes and Check falls back to v1, and when v2 Check is skipped entirely because the weighted graph fails to build. These logs surface authorization models that may be affected by a future v1 deprecation, and no operator action is required. [#3204](https://github.com/openfga/openfga/pull/3204)
 
 ### Changed
