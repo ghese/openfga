@@ -1,4 +1,4 @@
-package azure
+package sqlserver
 
 import (
 	"context"
@@ -28,13 +28,14 @@ import (
 	tupleUtils "github.com/openfga/openfga/pkg/tuple"
 )
 
-var tracer = otel.Tracer("openfga/pkg/storage/azure")
+var tracer = otel.Tracer("openfga/pkg/storage/sqlserver")
 
 func startTrace(ctx context.Context, name string) (context.Context, trace.Span) {
-	return tracer.Start(ctx, "azure."+name)
+	return tracer.Start(ctx, "sqlserver."+name)
 }
 
-// Datastore provides an Azure SQL Database / SQL Server based implementation of [storage.OpenFGADatastore].
+// Datastore provides a SQL Server based implementation of [storage.OpenFGADatastore],
+// supporting both SQL Server and Azure SQL Database.
 type Datastore struct {
 	stbl                   sq.StatementBuilderType
 	db                     *sql.DB
@@ -53,7 +54,7 @@ var _ storage.OpenFGADatastore = (*Datastore)(nil)
 // rewritten safely.
 var ErrCredentialOverridesUnsupportedFormat = errors.New("credential overrides are not supported for the odbc connection string format")
 
-// ApplyCredentials overrides the username and password in an Azure SQL
+// ApplyCredentials overrides the username and password in a SQL Server
 // connection string. Both the URL format (sqlserver://) and the ADO/DSN
 // format (semicolon-delimited key=value pairs) are supported. If both
 // username and password are empty, the connection string is returned
@@ -124,12 +125,12 @@ func New(uri string, cfg *sqlcommon.Config) (*Datastore, error) {
 	}
 
 	// The azuread driver supports both SQL authentication and Entra ID
-	// authentication (e.g. `authentication=ActiveDirectoryManagedIdentity`);
-	// with no `authentication` parameter it behaves like the plain sqlserver
+	// authentication (e.g. `fedauth=ActiveDirectoryManagedIdentity`);
+	// with no `fedauth` parameter it behaves like the plain sqlserver
 	// driver.
 	db, err := sql.Open(azuread.DriverName, uri)
 	if err != nil {
-		return nil, fmt.Errorf("initialize azure sql connection: %w", err)
+		return nil, fmt.Errorf("initialize sqlserver connection: %w", err)
 	}
 	return NewWithDB(db, cfg)
 }

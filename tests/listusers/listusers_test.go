@@ -43,8 +43,8 @@ func TestListUsersSQLite(t *testing.T) {
 	testRunAll(t, "sqlite")
 }
 
-func TestListUsersAzure(t *testing.T) {
-	testRunAll(t, "azure")
+func TestListUsersSQLServer(t *testing.T) {
+	testRunAll(t, "sqlserver")
 }
 
 func testRunAll(t *testing.T, engine string) {

@@ -20,8 +20,8 @@ func TestMatrixPostgres(t *testing.T) {
 	runMatrixWithEngine(t, "postgres")
 }
 
-func TestMatrixAzure(t *testing.T) {
-	runMatrixWithEngine(t, "azure")
+func TestMatrixSQLServer(t *testing.T) {
+	runMatrixWithEngine(t, "sqlserver")
 }
 
 // TODO: re-enable
@@ -63,8 +63,8 @@ func TestListObjectsSQLite(t *testing.T) {
 	testRunAll(t, "sqlite")
 }
 
-func TestListObjectsAzure(t *testing.T) {
-	testRunAll(t, "azure")
+func TestListObjectsSQLServer(t *testing.T) {
+	testRunAll(t, "sqlserver")
 }
 
 func testRunAll(t *testing.T, engine string) {

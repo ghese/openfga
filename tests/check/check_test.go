@@ -51,8 +51,8 @@ func TestMatrixMysql(t *testing.T) {
 	runMatrixWithEngine(t, "mysql")
 }
 
-func TestMatrixAzure(t *testing.T) {
-	runMatrixWithEngine(t, "azure")
+func TestMatrixSQLServer(t *testing.T) {
+	runMatrixWithEngine(t, "sqlserver")
 }
 
 // TODO: re-enable after investigating write contention in test
@@ -93,8 +93,8 @@ func TestCheckSQLite(t *testing.T) {
 	testRunAll(t, "sqlite", config.ExperimentalCheckOptimizations)
 }
 
-func TestCheckAzure(t *testing.T) {
-	testRunAll(t, "azure", config.ExperimentalCheckOptimizations)
+func TestCheckSQLServer(t *testing.T) {
+	testRunAll(t, "sqlserver", config.ExperimentalCheckOptimizations)
 }
 
 // TODO move elsewhere as this isn't asserting on just Check API logs.

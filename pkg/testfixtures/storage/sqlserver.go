@@ -21,25 +21,25 @@ import (
 )
 
 const (
-	azureImage      = "mcr.microsoft.com/mssql/server:2022-latest"
-	azureDBPrefix   = "openfga-test-db-"
-	azureTemplateDB = azureDBPrefix + "template"
-	azureUsername   = "sa"
-	azurePassword   = "YourStrong@Pass1"
+	sqlserverImage      = "mcr.microsoft.com/mssql/server:2022-latest"
+	sqlserverDBPrefix   = "openfga-test-db-"
+	sqlserverTemplateDB = sqlserverDBPrefix + "template"
+	sqlserverUsername   = "sa"
+	sqlserverPassword   = "YourStrong@Pass1"
 )
 
 var (
-	_ DatastoreTestContainer = (*azureTestContainer)(nil)
+	_ DatastoreTestContainer = (*sqlserverTestContainer)(nil)
 
-	azureContainerName = "openfga-test-azure-" + ulid.Make().String()
-	azurePort          = network.MustParsePort("1433/tcp")
-	azureDockerCont    atomic.Pointer[container.InspectResponse]
+	sqlserverContainerName = "openfga-test-sqlserver-" + ulid.Make().String()
+	sqlserverPort          = network.MustParsePort("1433/tcp")
+	sqlserverDockerCont    atomic.Pointer[container.InspectResponse]
 
-	azureBootstrapping bool
-	azureCond          = sync.NewCond(&sync.Mutex{})
+	sqlserverBootstrapping bool
+	sqlserverCond          = sync.NewCond(&sync.Mutex{})
 )
 
-type azureTestContainer struct {
+type sqlserverTestContainer struct {
 	host string
 	port string
 
@@ -50,38 +50,38 @@ type azureTestContainer struct {
 	version int64
 }
 
-// GetConnectionURI returns the azure sql connection uri for the running azure test container.
-func (a *azureTestContainer) GetConnectionURI(includeCredentials bool) string {
+// GetConnectionURI returns the sqlserver connection uri for the running sqlserver test container.
+func (a *sqlserverTestContainer) GetConnectionURI(includeCredentials bool) string {
 	var username, password string
 	if includeCredentials {
 		username = a.username
 		password = a.password
 	}
 
-	return azureConnectionURI(a.host, a.port, a.database, username, password)
+	return sqlserverConnectionURI(a.host, a.port, a.database, username, password)
 }
 
-func (a *azureTestContainer) GetDatabaseSchemaVersion() int64 {
+func (a *sqlserverTestContainer) GetDatabaseSchemaVersion() int64 {
 	return a.version
 }
 
-func (a *azureTestContainer) GetUsername() string {
+func (a *sqlserverTestContainer) GetUsername() string {
 	return a.username
 }
 
-func (a *azureTestContainer) GetPassword() string {
+func (a *sqlserverTestContainer) GetPassword() string {
 	return a.password
 }
 
-func (a *azureTestContainer) CreateSecondary(t testing.TB) error {
+func (a *sqlserverTestContainer) CreateSecondary(t testing.TB) error {
 	return nil
 }
 
-func (a *azureTestContainer) GetSecondaryConnectionURI(includeCredentials bool) string {
+func (a *sqlserverTestContainer) GetSecondaryConnectionURI(includeCredentials bool) string {
 	return ""
 }
 
-func RunAzureTestContainer(t testing.TB) DatastoreTestContainer {
+func RunSQLServerTestContainer(t testing.TB) DatastoreTestContainer {
 	docker, err := testutils.NewDockerClient()
 	require.NoError(t, err)
 
@@ -89,66 +89,66 @@ func RunAzureTestContainer(t testing.TB) DatastoreTestContainer {
 		docker.Close()
 	})
 
-	// Shared Azure SQL container bootstrap for concurrent tests using sync.Cond.
+	// Shared SQL Server container bootstrap for concurrent tests using sync.Cond.
 	// Only one test bootstraps the shared container at a time, while others wait efficiently using sync.Cond.
 	// If bootstrap fails, waiting tests are awakened so another test can retry without being affected by the failure.
-	azureCond.L.Lock()
-	for azureDockerCont.Load() == nil {
-		if !azureBootstrapping {
-			azureBootstrapping = true
-			azureCond.L.Unlock()
+	sqlserverCond.L.Lock()
+	for sqlserverDockerCont.Load() == nil {
+		if !sqlserverBootstrapping {
+			sqlserverBootstrapping = true
+			sqlserverCond.L.Unlock()
 
-			dockerCont, err := bootstrapAzureContainer(t.Context(), docker)
-			azureCond.L.Lock()
-			azureBootstrapping = false
+			dockerCont, err := bootstrapSQLServerContainer(t.Context(), docker)
+			sqlserverCond.L.Lock()
+			sqlserverBootstrapping = false
 			if err == nil {
-				azureDockerCont.Store(dockerCont)
+				sqlserverDockerCont.Store(dockerCont)
 			}
 
-			azureCond.Broadcast()
+			sqlserverCond.Broadcast()
 
 			if err != nil {
 				// Unlock before failing the test to allow waiting tests to proceed with bootstrapping.
-				azureCond.L.Unlock()
+				sqlserverCond.L.Unlock()
 				require.NoError(t, err)
 			}
 
 			continue
 		}
 
-		azureCond.Wait()
+		sqlserverCond.Wait()
 	}
-	azureCond.L.Unlock()
+	sqlserverCond.L.Unlock()
 
-	dockerCont := azureDockerCont.Load()
-	port, err := docker.GetHostPort(dockerCont, azurePort)
+	dockerCont := sqlserverDockerCont.Load()
+	port, err := docker.GetHostPort(dockerCont, sqlserverPort)
 	require.NoError(t, err)
 
-	version, err := latestMigrationVersion(assets.AzureMigrationDir)
-	require.NoError(t, err, "get expected azure migration version")
+	version, err := latestMigrationVersion(assets.SQLServerMigrationDir)
+	require.NoError(t, err, "get expected sqlserver migration version")
 
-	testCont := &azureTestContainer{
+	testCont := &sqlserverTestContainer{
 		host:     "localhost",
 		port:     port,
-		database: azureDBPrefix + ulid.Make().String(),
-		username: azureUsername,
-		password: azurePassword,
+		database: sqlserverDBPrefix + ulid.Make().String(),
+		username: sqlserverUsername,
+		password: sqlserverPassword,
 		version:  version,
 	}
 
-	tplURI := azureConnectionURI(testCont.host, testCont.port, azureTemplateDB, testCont.username, testCont.password)
+	tplURI := sqlserverConnectionURI(testCont.host, testCont.port, sqlserverTemplateDB, testCont.username, testCont.password)
 	require.NoError(t, waitForMigrationVersion("sqlserver", tplURI, testCont.version))
 
 	// Create test database
 	createExec := client.ExecCreateOptions{
-		Cmd: []string{"/opt/mssql-tools18/bin/sqlcmd", "-S", "localhost", "-U", "sa", "-P", azurePassword, "-C", "-Q", fmt.Sprintf("CREATE DATABASE [%s];", testCont.database)},
+		Cmd: []string{"/opt/mssql-tools18/bin/sqlcmd", "-S", "localhost", "-U", "sa", "-P", sqlserverPassword, "-C", "-Q", fmt.Sprintf("CREATE DATABASE [%s];", testCont.database)},
 	}
 	require.NoError(t, docker.ExecCommand(t.Context(), dockerCont.ID, createExec))
 
 	// Run migrations on the test database
 	db, err := goose.OpenDBWithDriver("sqlserver", testCont.GetConnectionURI(true))
 	require.NoError(t, err)
-	require.NoError(t, goose.Up(db, assets.AzureMigrationDir))
+	require.NoError(t, goose.Up(db, assets.SQLServerMigrationDir))
 	require.NoError(t, db.Close())
 
 	t.Cleanup(func() {
@@ -157,10 +157,10 @@ func RunAzureTestContainer(t testing.TB) DatastoreTestContainer {
 
 		dropQuery := fmt.Sprintf("DROP DATABASE [%s];", testCont.database)
 		dropExec := client.ExecCreateOptions{
-			Cmd: []string{"/opt/mssql-tools18/bin/sqlcmd", "-S", "localhost", "-U", "sa", "-P", azurePassword, "-C", "-Q", dropQuery},
+			Cmd: []string{"/opt/mssql-tools18/bin/sqlcmd", "-S", "localhost", "-U", "sa", "-P", sqlserverPassword, "-C", "-Q", dropQuery},
 		}
 		if err := docker.ExecCommand(ctx, dockerCont.ID, dropExec); err != nil {
-			t.Errorf("drop test database in the azure container: %v", err)
+			t.Errorf("drop test database in the sqlserver container: %v", err)
 		}
 	})
 
@@ -169,35 +169,35 @@ func RunAzureTestContainer(t testing.TB) DatastoreTestContainer {
 	return testCont
 }
 
-// CleanupAzureContainer removes the shared azure test container.
+// CleanupSQLServerContainer removes the shared sqlserver test container.
 // It should be called from TestMain after all tests in a package have finished.
-func CleanupAzureContainer() {
-	_ = cleanupDatastoreTestContainer(azureContainerName)
+func CleanupSQLServerContainer() {
+	_ = cleanupDatastoreTestContainer(sqlserverContainerName)
 }
 
-func bootstrapAzureContainer(ctx context.Context, docker *testutils.DockerClient) (*container.InspectResponse, error) {
-	if err := docker.PullImage(ctx, azureImage); err != nil {
-		return nil, fmt.Errorf("pull azure image: %w", err)
+func bootstrapSQLServerContainer(ctx context.Context, docker *testutils.DockerClient) (*container.InspectResponse, error) {
+	if err := docker.PullImage(ctx, sqlserverImage); err != nil {
+		return nil, fmt.Errorf("pull sqlserver image: %w", err)
 	}
 
 	contCfg := &container.Config{
 		Env: []string{
 			"ACCEPT_EULA=Y",
-			"MSSQL_SA_PASSWORD=" + azurePassword,
+			"MSSQL_SA_PASSWORD=" + sqlserverPassword,
 		},
 		ExposedPorts: network.PortSet{
-			azurePort: {},
+			sqlserverPort: {},
 		},
-		Image: azureImage,
+		Image: sqlserverImage,
 	}
 
 	hostCfg := &container.HostConfig{
 		PublishAllPorts: true,
 	}
 
-	cont, err := docker.RunContainer(ctx, contCfg, hostCfg, azureContainerName)
+	cont, err := docker.RunContainer(ctx, contCfg, hostCfg, sqlserverContainerName)
 	if err != nil {
-		return nil, fmt.Errorf("run azure container: %w", err)
+		return nil, fmt.Errorf("run sqlserver container: %w", err)
 	}
 
 	needsCleanup := true
@@ -210,43 +210,43 @@ func bootstrapAzureContainer(ctx context.Context, docker *testutils.DockerClient
 		}
 	}()
 
-	port, err := docker.GetHostPort(cont, azurePort)
+	port, err := docker.GetHostPort(cont, sqlserverPort)
 	if err != nil {
-		return nil, fmt.Errorf("get azure host port: %w", err)
+		return nil, fmt.Errorf("get sqlserver host port: %w", err)
 	}
 
-	dbURI := azureConnectionURI("localhost", port, "master", azureUsername, azurePassword)
+	dbURI := sqlserverConnectionURI("localhost", port, "master", sqlserverUsername, sqlserverPassword)
 	if err := waitForDatabaseWithTimeout("sqlserver", dbURI, 120*time.Second); err != nil {
-		return nil, fmt.Errorf("wait for azure database: %w", err)
+		return nil, fmt.Errorf("wait for sqlserver database: %w", err)
 	}
 
 	// Create template database
 	createTplExec := client.ExecCreateOptions{
-		Cmd: []string{"/opt/mssql-tools18/bin/sqlcmd", "-S", "localhost", "-U", "sa", "-P", azurePassword, "-C", "-Q", fmt.Sprintf("CREATE DATABASE [%s];", azureTemplateDB)},
+		Cmd: []string{"/opt/mssql-tools18/bin/sqlcmd", "-S", "localhost", "-U", "sa", "-P", sqlserverPassword, "-C", "-Q", fmt.Sprintf("CREATE DATABASE [%s];", sqlserverTemplateDB)},
 	}
 	if err := docker.ExecCommand(ctx, cont.ID, createTplExec); err != nil {
 		return nil, fmt.Errorf("create template database: %w", err)
 	}
 
-	waitForDBURI := azureConnectionURI("localhost", port, azureTemplateDB, azureUsername, azurePassword)
+	waitForDBURI := sqlserverConnectionURI("localhost", port, sqlserverTemplateDB, sqlserverUsername, sqlserverPassword)
 	if err := waitForDatabaseWithTimeout("sqlserver", waitForDBURI, 120*time.Second); err != nil {
 		return nil, fmt.Errorf("wait for template database: %w", err)
 	}
 
 	db, err := goose.OpenDBWithDriver("sqlserver", waitForDBURI)
 	if err != nil {
-		return nil, fmt.Errorf("open azure database: %w", err)
+		return nil, fmt.Errorf("open sqlserver database: %w", err)
 	}
 	defer db.Close()
 
-	if err := goose.Up(db, assets.AzureMigrationDir); err != nil {
-		return nil, fmt.Errorf("apply azure migrations: %w", err)
+	if err := goose.Up(db, assets.SQLServerMigrationDir); err != nil {
+		return nil, fmt.Errorf("apply sqlserver migrations: %w", err)
 	}
 
 	needsCleanup = false
 	return cont, nil
 }
 
-func azureConnectionURI(host, port, database, username, password string) string {
+func sqlserverConnectionURI(host, port, database, username, password string) string {
 	return fmt.Sprintf("sqlserver://%s:%s@%s:%s?database=%s", username, password, host, port, database)
 }

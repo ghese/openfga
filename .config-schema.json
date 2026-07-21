@@ -235,7 +235,7 @@
                 "engine": {
                     "description": "The datastore engine that will be used for persistence.",
                     "type": "string",
-                    "enum": ["memory", "postgres", "mysql", "sqlite", "azure"],
+                    "enum": ["memory", "postgres", "mysql", "sqlite", "sqlserver"],
                     "default": "memory",
                     "x-env-variable": "OPENFGA_DATASTORE_ENGINE"
                 },

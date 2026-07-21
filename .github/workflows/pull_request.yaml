@@ -67,7 +67,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: true
 
-  # Storage integration tests — sqlite, mysql, postgres, azure (sql server), memory
+  # Storage integration tests — sqlite, mysql, postgres, sqlserver, memory
   tests-storage:
     runs-on: ubuntu-latest-4-cores
     timeout-minutes: 20

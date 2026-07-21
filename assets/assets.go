@@ -4,10 +4,10 @@ package assets
 import "embed"
 
 const (
-	MySQLMigrationDir    = "migrations/mysql"
-	PostgresMigrationDir = "migrations/postgres"
-	SqliteMigrationDir   = "migrations/sqlite"
-	AzureMigrationDir    = "migrations/azure"
+	MySQLMigrationDir     = "migrations/mysql"
+	PostgresMigrationDir  = "migrations/postgres"
+	SqliteMigrationDir    = "migrations/sqlite"
+	SQLServerMigrationDir = "migrations/sqlserver"
 )
 
 // EmbedMigrations within the openfga binary.

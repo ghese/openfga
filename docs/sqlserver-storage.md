@@ -1,11 +1,11 @@
-# Azure SQL Storage Engine
+# SQL Server Storage Engine (SQL Server & Azure SQL Database)
 
-This document describes how to build, configure, and verify OpenFGA with **Azure SQL Database** (the cloud service) as the storage engine.
+This document describes how to build, configure, and verify OpenFGA with the `sqlserver` storage engine. The engine supports **Microsoft SQL Server** (2019+, self-hosted or containerized) and **Azure SQL Database** (the managed cloud service), including Microsoft Entra ID authentication.
 
 ## Prerequisites
 
 - Go 1.25.7+
-- An Azure SQL Database instance (or a local Docker SQL Server for development)
+- A SQL Server instance: an Azure SQL Database, or a local Docker SQL Server for development
 - OpenFGA source code
 
 ---
@@ -34,7 +34,7 @@ Create an Azure SQL Database through the Azure Portal, CLI, or infrastructure-as
 
 - **Server name**: `your-server.database.windows.net`
 - **Database name**: `openfga`
-- **Admin credentials**: SQL authentication login and password, or Azure AD authentication
+- **Admin credentials**: SQL authentication login and password, or Microsoft Entra ID authentication
 
 ### 2. Configure the Firewall
 
@@ -55,14 +55,14 @@ CREATE DATABASE openfga;
 **PowerShell:**
 ```powershell
 .\dist\openfga.exe migrate `
-  --datastore-engine azure `
+  --datastore-engine sqlserver `
   --datastore-uri "server=your-server.database.windows.net;user id=your-admin;password=your-password;port=1433;database=openfga;encrypt=true;trustservercertificate=false"
 ```
 
 **bash:**
 ```bash
 ./dist/openfga migrate \
-  --datastore-engine azure \
+  --datastore-engine sqlserver \
   --datastore-uri "server=your-server.database.windows.net;user id=your-admin;password=your-password;port=1433;database=openfga;encrypt=true;trustservercertificate=false"
 ```
 
@@ -80,14 +80,14 @@ migration done
 **PowerShell:**
 ```powershell
 .\dist\openfga.exe run `
-  --datastore-engine azure `
+  --datastore-engine sqlserver `
   --datastore-uri "server=your-server.database.windows.net;user id=your-admin;password=your-password;port=1433;database=openfga;encrypt=true;trustservercertificate=false"
 ```
 
 **bash:**
 ```bash
 ./dist/openfga run \
-  --datastore-engine azure \
+  --datastore-engine sqlserver \
   --datastore-uri "server=your-server.database.windows.net;user id=your-admin;password=your-password;port=1433;database=openfga;encrypt=true;trustservercertificate=false"
 ```
 
@@ -103,13 +103,15 @@ The `microsoft/go-mssqldb` driver accepts both the **URL format** (`sqlserver://
 
 | Parameter | Required | Description |
 |---|---|---|
-| `server` | Yes | Azure SQL server name (e.g. `your-server.database.windows.net`) |
-| `user id` | SQL auth only | SQL authentication username (omit when using `authentication=` Entra ID modes, except user-assigned managed identity) |
-| `password` | SQL auth only | SQL authentication password (omit when using `authentication=` Entra ID modes) |
+| `server` | Yes | SQL Server host or Azure SQL server name (e.g. `your-server.database.windows.net`) |
+| `user id` | SQL auth only | SQL authentication username (omit when using `fedauth=` Entra ID modes, except user-assigned managed identity) |
+| `password` | SQL auth only | SQL authentication password (omit when using `fedauth=` Entra ID modes) |
 | `database` | Yes | Database name |
 | `port` | No | Default: `1433` |
-| `encrypt` | No | `true` for Azure SQL (default in new driver); `false` for local dev |
-| `trustservercertificate` | No | `true` for self-signed certs (local dev); `false` for Azure (requires valid cert) |
+| `encrypt` | No | Driver default is `false` — set `true` explicitly for Azure SQL and any production server (see note below); `false` only for local dev |
+| `trustservercertificate` | No | `true` for self-signed certs (local dev); `false` for Azure SQL / production (requires valid cert) |
+
+> **Encryption note:** the `go-mssqldb` driver defaults to `encrypt=false`. Azure SQL Database *forces* TLS during the TDS handshake, so connections to it are encrypted even without the parameter — but always set `encrypt=true;trustservercertificate=false` explicitly for downgrade protection and to fail fast on misconfiguration.
 
 ### Examples
 
@@ -118,21 +120,21 @@ The `microsoft/go-mssqldb` driver accepts both the **URL format** (`sqlserver://
 server=my-server.database.windows.net;user id=admin;password=P@ssw0rd;port=1433;database=openfga;encrypt=true;trustservercertificate=false
 ```
 
-**Azure SQL with Microsoft Entra ID (Azure AD) authentication** — the engine connects through the `go-mssqldb/azuread` driver, so all `authentication=` modes are supported:
+**Azure SQL with Microsoft Entra ID authentication** — the engine connects through the `go-mssqldb/azuread` driver, which reads the **`fedauth`** connection string parameter (note: *not* `authentication`, the ADO.NET name — the driver silently ignores that and falls back to SQL/Windows auth). Supported workflows include `ActiveDirectoryDefault`, `ActiveDirectoryManagedIdentity` (`ActiveDirectoryMSI`), `ActiveDirectoryServicePrincipal`, `ActiveDirectoryWorkloadIdentity`, `ActiveDirectoryAzCli`, and `ActiveDirectoryInteractive`:
 
 System-assigned managed identity:
 ```
-server=my-server.database.windows.net;database=openfga;encrypt=true;authentication=ActiveDirectoryManagedIdentity
+server=my-server.database.windows.net;database=openfga;encrypt=true;fedauth=ActiveDirectoryManagedIdentity
 ```
 
 User-assigned managed identity (pass the identity's client ID as `user id`):
 ```
-server=my-server.database.windows.net;database=openfga;encrypt=true;authentication=ActiveDirectoryManagedIdentity;user id=<client-id-of-identity>
+server=my-server.database.windows.net;database=openfga;encrypt=true;fedauth=ActiveDirectoryManagedIdentity;user id=<client-id-of-identity>
 ```
 
 Azure CLI login (local development against Azure SQL):
 ```
-server=my-server.database.windows.net;database=openfga;encrypt=true;authentication=ActiveDirectoryAzCli
+server=my-server.database.windows.net;database=openfga;encrypt=true;fedauth=ActiveDirectoryAzCli
 ```
 
 > The managed identity (or the server's Entra ID principal) must be created as a database user and granted permissions, e.g. `CREATE USER [my-app] FROM EXTERNAL PROVIDER; ALTER ROLE db_owner ADD MEMBER [my-app];` (migrations require DDL rights; the runtime server only needs `db_datareader`/`db_datawriter`).
@@ -148,6 +150,19 @@ server=localhost;user id=sa;password=YourStrong@Pass1;port=1433;database=openfga
 ```
 
 > Note: In the URL format, percent-encode special characters in the username and password (`@` → `%40`, `:` → `%3A`, `/` → `%2F`). An unencoded `@` in the password happens to parse (Go splits the authority at the last `@`), but do not rely on it. The DSN format needs no escaping.
+
+---
+
+## Azure SQL Database Production Notes
+
+- **Connection pooling**: Azure SQL tiers cap concurrent sessions and workers (per DTU/vCore). Size `--datastore-max-open-conns` below your tier's worker limit — a pool larger than the worker limit converts load spikes into throttling errors (`10928`/`10929`) instead of queueing. When running multiple OpenFGA replicas, divide the budget across replicas.
+- **Serverless tier auto-pause**: the serverless tier pauses after inactivity, and the first connection after resume can take 30–60 s. Set `--datastore-conn-max-idle-time` below the auto-pause delay to avoid holding stale connections across a pause, or disable auto-pause for latency-sensitive deployments.
+- **Retry semantics**: the engine maps Azure SQL conditions to retryable API errors — clients should retry with backoff:
+  - Throttling (error numbers `10928`, `10929`, `40501`, `49918`–`49920`) → `429 ResourceExhausted`
+  - Write deadlock victim (error `1205`) → `409 Conflict` (the transaction was rolled back; safe to retry)
+  - Failover/reconfiguration (`4060`, `40143`, `40197`, `40613`) surface as generic errors; they are transient — retry with backoff
+- **Least-privilege permissions**: `openfga migrate` needs DDL rights (`db_ddladmin` + `db_datareader`/`db_datawriter`, or `db_owner`). The `openfga run` server only needs `db_datareader` + `db_datawriter` — use a separate, lower-privileged principal for the runtime.
+- **Entra ID over SQL auth**: prefer `fedauth=ActiveDirectoryManagedIdentity` (no secrets to rotate) when OpenFGA runs on Azure compute. SQL authentication remains available for non-Azure hosting.
 
 ---
 
@@ -170,12 +185,12 @@ docker exec mssql /opt/mssql-tools18/bin/sqlcmd `
 
 # Run migrations
 .\dist\openfga.exe migrate `
-  --datastore-engine azure `
+  --datastore-engine sqlserver `
   --datastore-uri "server=localhost;user id=sa;password=YourStrong@Pass1;port=1433;database=openfga;encrypt=false;trustservercertificate=true"
 
 # Start the server
 .\dist\openfga.exe run `
-  --datastore-engine azure `
+  --datastore-engine sqlserver `
   --datastore-uri "server=localhost;user id=sa;password=YourStrong@Pass1;port=1433;database=openfga;encrypt=false;trustservercertificate=true"
 ```
 
@@ -194,12 +209,12 @@ docker exec mssql /opt/mssql-tools18/bin/sqlcmd \
 
 # Run migrations
 ./dist/openfga migrate \
-  --datastore-engine azure \
+  --datastore-engine sqlserver \
   --datastore-uri "server=localhost;user id=sa;password=YourStrong@Pass1;port=1433;database=openfga;encrypt=false;trustservercertificate=true"
 
 # Start the server
 ./dist/openfga run \
-  --datastore-engine azure \
+  --datastore-engine sqlserver \
   --datastore-uri "server=localhost;user id=sa;password=YourStrong@Pass1;port=1433;database=openfga;encrypt=false;trustservercertificate=true"
 ```
 
@@ -209,7 +224,7 @@ docker exec mssql /opt/mssql-tools18/bin/sqlcmd \
 
 ## Manual Smoke Tests
 
-These tests verify the Azure SQL implementation end-to-end via the HTTP API.
+These tests verify the SQL Server engine end-to-end via the HTTP API. Run them against your Azure SQL Database instance to validate a cloud deployment.
 
 ### 1. Health Check
 
@@ -416,10 +431,10 @@ All of the tests below require Docker; they spin up a shared SQL Server containe
 
 ### Storage Test Suite
 
-Runs the complete `OpenFGADatastore` test suite (`test.RunAllTests`) plus azure-specific tests:
+Runs the complete `OpenFGADatastore` test suite (`test.RunAllTests`) plus sqlserver-specific tests:
 
 ```bash
-go test -count=1 -timeout 20m ./pkg/storage/azure/
+go test -count=1 -timeout 20m ./pkg/storage/sqlserver/
 ```
 
 The first run pulls the `mcr.microsoft.com/mssql/server:2022-latest` image. The full suite completes in ~90 seconds.
@@ -428,10 +443,10 @@ The first run pulls the `mcr.microsoft.com/mssql/server:2022-latest` image. The 
 
 ### Matrix and API Tests
 
-Runs the primary correctness tests (Check, ListObjects, ListUsers) against azure:
+Runs the primary correctness tests (Check, ListObjects, ListUsers) against sqlserver:
 
 ```bash
-go test -count=1 -timeout 60m -run "TestMatrixAzure|TestCheckAzure|TestListObjectsAzure|TestListUsersAzure" ./tests/check/ ./tests/listobjects/ ./tests/listusers/
+go test -count=1 -timeout 60m -run "TestMatrixSQLServer|TestCheckSQLServer|TestListObjectsSQLServer|TestListUsersSQLServer" ./tests/check/ ./tests/listobjects/ ./tests/listusers/
 ```
 
 ### Migration Rollback Test
@@ -439,7 +454,7 @@ go test -count=1 -timeout 60m -run "TestMatrixAzure|TestCheckAzure|TestListObjec
 Exercises every goose `Up`/`Down` migration:
 
 ```bash
-go test -count=1 -run "TestMigrateCommandRollbacks/azure" ./pkg/storage/migrate/
+go test -count=1 -run "TestMigrateCommandRollbacks/sqlserver" ./pkg/storage/migrate/
 ```
 
 ### Shared sqlcommon Tests
@@ -458,21 +473,21 @@ go test ./pkg/storage/sqlcommon/
 
 | Component | Location | Purpose |
 |---|---|---|
-| Azure driver | `pkg/storage/azure/azure.go` | Full `OpenFGADatastore` implementation |
-| Azure tests | `pkg/storage/azure/azure_test.go` | Storage test suite via Docker container |
-| Test fixture | `pkg/testfixtures/storage/azure.go` | Docker container bootstrap and cleanup |
-| Migration dispatch | `pkg/storage/migrate/migrate.go` | Routes `"azure"` engine to the `"azuresql"` goose driver |
-| Server dispatch | `cmd/run/run.go` | Routes `"azure"` engine to `azure.New()` |
-| Test bootstrap | `cmd/util/util.go` | `MustBootstrapDatastore` support for `"azure"` |
-| Model validation | `cmd/validatemodels/validate_models.go` | `validate-models` command support for `"azure"` |
-| Matrix tests | `tests/check`, `tests/listobjects`, `tests/listusers` | `TestMatrixAzure`, `TestCheckAzure`, `TestListObjectsAzure`, `TestListUsersAzure` |
+| Datastore | `pkg/storage/sqlserver/sqlserver.go` | Full `OpenFGADatastore` implementation |
+| Datastore tests | `pkg/storage/sqlserver/sqlserver_test.go` | Storage test suite via Docker container |
+| Test fixture | `pkg/testfixtures/storage/sqlserver.go` | Docker container bootstrap and cleanup |
+| Migration dispatch | `pkg/storage/migrate/migrate.go` | Routes `"sqlserver"` engine to the `"azuresql"` goose driver (the azuread driver's registered name) |
+| Server dispatch | `cmd/run/run.go` | Routes `"sqlserver"` engine to `sqlserver.New()` |
+| Test bootstrap | `cmd/util/util.go` | `MustBootstrapDatastore` support for `"sqlserver"` |
+| Model validation | `cmd/validatemodels/validate_models.go` | `validate-models` command support for `"sqlserver"` |
+| Matrix tests | `tests/check`, `tests/listobjects`, `tests/listusers` | `TestMatrixSQLServer`, `TestCheckSQLServer`, `TestListObjectsSQLServer`, `TestListUsersSQLServer` |
 | Shared SQL | `pkg/storage/sqlcommon/sqlcommon.go` | `TimestampExpr` on `WriteData` for dialect-specific timestamps |
-| Build config | `Makefile` | Adds azure to `STORAGE_PACKAGES` and `dev-run` |
+| Build config | `Makefile` | Adds sqlserver to `STORAGE_PACKAGES` and `dev-run` |
 
 ### Migration Files
 
 ```
-assets/migrations/azure/
+assets/migrations/sqlserver/
   001_initialize_schema.sql
   002_add_authorization_model_version.sql
   003_add_reverse_lookup_index.sql
@@ -486,7 +501,7 @@ All textual identifier columns are created with `COLLATE Latin1_General_BIN2` (s
 
 ### Resolver Chain
 
-Azure SQL uses the same resolver chain as other storage engines (resolvers in brackets are added conditionally based on configuration; the chain is circular — the last resolver delegates back to the first):
+The sqlserver engine uses the same resolver chain as other storage engines (resolvers in brackets are added conditionally based on configuration; the chain is circular — the last resolver delegates back to the first):
 ```
 [CachedCheckResolver]? → [DispatchThrottlingCheckResolver]? → [ShadowResolver | LocalChecker] ⟲
 ```
@@ -517,5 +532,5 @@ See `internal/graph/builder.go` for details.
 ## Known Limitations
 
 - **Collation**: All textual identifier columns are declared with `COLLATE Latin1_General_BIN2` in the schema migrations, so equality, uniqueness, and ordering are case-sensitive and bytewise — matching Postgres, MySQL (post-008), and SQLite. The `ReadStartingWithUser` query additionally specifies `COLLATE Latin1_General_BIN2` on `ORDER BY object_id` explicitly. Note that per ANSI SQL padding rules, SQL Server still ignores trailing spaces in `VARCHAR` equality comparisons regardless of collation; OpenFGA identifier validation rejects whitespace, so this does not affect API traffic.
-- **Driver**: Uses `microsoft/go-mssqldb` v1.10.0 through the `azuread` driver (`azuread.DriverName`), which supports SQL authentication and all Entra ID `authentication=` modes. Placeholders use `sq.AtP` format (`@p1`, `@p2`, ...). Standard `?` placeholders via `database/sql` are not used because the driver does not universally convert them.
+- **Driver**: Uses `microsoft/go-mssqldb` v1.10.0 through the `azuread` driver (`azuread.DriverName`), which supports SQL authentication and all Entra ID `fedauth=` workflows. Placeholders use `sq.AtP` format (`@p1`, `@p2`, ...). Standard `?` placeholders via `database/sql` are not used because the driver does not universally convert them.
 - **Test containers**: The test fixture creates per-test databases and runs migrations on each, unlike Postgres which supports `CREATE DATABASE ... TEMPLATE ...`.

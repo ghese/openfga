@@ -26,7 +26,7 @@ It helps developers easily model and enforce fine-grained access control in thei
 ## Highlights
 
 - ⚡ High-performance, developer-friendly APIs (HTTP & gRPC)
-- 🔌 Flexible storage backends (In-Memory, PostgreSQL, MySQL, SQLite beta, Azure SQL beta)
+- 🔌 Flexible storage backends (In-Memory, PostgreSQL, MySQL, SQLite beta, SQL Server beta)
 - 🧰 SDKs for [Java](https://central.sonatype.com/artifact/dev.openfga/openfga-sdk), [Node.js](https://www.npmjs.com/package/@openfga/sdk), [Go](https://github.com/openfga/go-sdk), [Python](https://github.com/openfga/python-sdk), [.NET](https://www.nuget.org/packages/OpenFga.Sdk)
 - 🌐  Several additional SDKs and tools [contributed by the community](https://github.com/openfga/community#community-projects)
 - 🧪 [CLI](https://github.com/openfga/cli) for interacting with an OpenFGA server and [testing authorization models](https://openfga.dev/docs/modeling/testing)
@@ -223,7 +223,7 @@ The MySQL storage engine has stricter length limits on tuple properties than oth
 
 - ✅ Used in production by [Auth0 FGA](https://auth0.com/fine-grained-authorization) since December 2021
 - ⚠️ Memory storage adapter is **for development only**
-- 🗄 Supported storage: PostgreSQL 14+, MySQL 8, SQLite (beta), Azure SQL Database / SQL Server (beta)
+- 🗄 Supported storage: PostgreSQL 14+, MySQL 8, SQLite (beta), SQL Server / Azure SQL Database (beta)
 - 📘 See [Running in Production](https://openfga.dev/docs/best-practices/running-in-production)
 
 The OpenFGA team treats **production-impacting issues with highest priority**.

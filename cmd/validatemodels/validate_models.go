@@ -10,11 +10,11 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/openfga/openfga/pkg/storage"
-	"github.com/openfga/openfga/pkg/storage/azure"
 	"github.com/openfga/openfga/pkg/storage/mysql"
 	"github.com/openfga/openfga/pkg/storage/postgres"
 	"github.com/openfga/openfga/pkg/storage/sqlcommon"
 	"github.com/openfga/openfga/pkg/storage/sqlite"
+	"github.com/openfga/openfga/pkg/storage/sqlserver"
 	"github.com/openfga/openfga/pkg/typesystem"
 )
 
@@ -68,8 +68,8 @@ func runValidate(_ *cobra.Command, _ []string) error {
 		db, err = postgres.New(uri, cfg)
 	case "sqlite":
 		db, err = sqlite.New(uri, cfg)
-	case "azure":
-		db, err = azure.New(uri, cfg)
+	case "sqlserver":
+		db, err = sqlserver.New(uri, cfg)
 	case "":
 		return fmt.Errorf("missing datastore engine type")
 	case "memory":

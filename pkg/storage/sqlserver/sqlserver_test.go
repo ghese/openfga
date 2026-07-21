@@ -1,4 +1,4 @@
-package azure
+package sqlserver
 
 import (
 	"context"
@@ -25,8 +25,8 @@ import (
 	"github.com/openfga/openfga/pkg/typesystem"
 )
 
-func TestAzureDatastore(t *testing.T) {
-	testDatastore := storagefixtures.RunDatastoreTestContainer(t, "azure")
+func TestSQLServerDatastore(t *testing.T) {
+	testDatastore := storagefixtures.RunDatastoreTestContainer(t, "sqlserver")
 
 	uri := testDatastore.GetConnectionURI(true)
 	cfg := sqlcommon.NewConfig()
@@ -46,8 +46,8 @@ func TestAzureDatastore(t *testing.T) {
 	t.Run("WriteTuplesWithMaxTuplesPerWrite", test.WriteTuplesWithMaxTuplesPerWrite(dsCustom, context.Background()))
 }
 
-func TestAzureDatastoreAfterCloseIsNotReady(t *testing.T) {
-	testDatastore := storagefixtures.RunDatastoreTestContainer(t, "azure")
+func TestSQLServerDatastoreAfterCloseIsNotReady(t *testing.T) {
+	testDatastore := storagefixtures.RunDatastoreTestContainer(t, "sqlserver")
 
 	uri := testDatastore.GetConnectionURI(true)
 	cfg := sqlcommon.NewConfig()
@@ -76,7 +76,7 @@ func TestReadEnsureNoOrder(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			testDatastore := storagefixtures.RunDatastoreTestContainer(t, "azure")
+			testDatastore := storagefixtures.RunDatastoreTestContainer(t, "sqlserver")
 
 			uri := testDatastore.GetConnectionURI(true)
 			cfg := sqlcommon.NewConfig()
@@ -163,7 +163,7 @@ func TestCtxCancel(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			testDatastore := storagefixtures.RunDatastoreTestContainer(t, "azure")
+			testDatastore := storagefixtures.RunDatastoreTestContainer(t, "sqlserver")
 
 			uri := testDatastore.GetConnectionURI(true)
 			cfg := sqlcommon.NewConfig()
@@ -210,7 +210,7 @@ func TestCtxCancel(t *testing.T) {
 
 // TestReadPageEnsureOrder asserts that the read page is ordered by ulid.
 func TestReadPageEnsureOrder(t *testing.T) {
-	testDatastore := storagefixtures.RunDatastoreTestContainer(t, "azure")
+	testDatastore := storagefixtures.RunDatastoreTestContainer(t, "sqlserver")
 
 	uri := testDatastore.GetConnectionURI(true)
 	cfg := sqlcommon.NewConfig()
@@ -245,8 +245,8 @@ func TestReadPageEnsureOrder(t *testing.T) {
 	require.Equal(t, firstTuple, tuples[1].GetKey())
 }
 
-func TestAzureDatastore_ReadPageWithUserFiltering(t *testing.T) {
-	testDatastore := storagefixtures.RunDatastoreTestContainer(t, "azure")
+func TestSQLServerDatastore_ReadPageWithUserFiltering(t *testing.T) {
+	testDatastore := storagefixtures.RunDatastoreTestContainer(t, "sqlserver")
 
 	uri := testDatastore.GetConnectionURI(true)
 	cfg := sqlcommon.NewConfig()
@@ -310,7 +310,7 @@ func TestAzureDatastore_ReadPageWithUserFiltering(t *testing.T) {
 }
 
 func TestReadAuthorizationModelUnmarshallError(t *testing.T) {
-	testDatastore := storagefixtures.RunDatastoreTestContainer(t, "azure")
+	testDatastore := storagefixtures.RunDatastoreTestContainer(t, "sqlserver")
 
 	uri := testDatastore.GetConnectionURI(true)
 	cfg := sqlcommon.NewConfig()
@@ -336,7 +336,7 @@ func TestReadAuthorizationModelUnmarshallError(t *testing.T) {
 }
 
 func TestReadAuthorizationModelReturnValue(t *testing.T) {
-	testDatastore := storagefixtures.RunDatastoreTestContainer(t, "azure")
+	testDatastore := storagefixtures.RunDatastoreTestContainer(t, "sqlserver")
 
 	uri := testDatastore.GetConnectionURI(true)
 	cfg := sqlcommon.NewConfig()
@@ -364,7 +364,7 @@ func TestReadAuthorizationModelReturnValue(t *testing.T) {
 }
 
 func TestFindLatestModel(t *testing.T) {
-	testDatastore := storagefixtures.RunDatastoreTestContainer(t, "azure")
+	testDatastore := storagefixtures.RunDatastoreTestContainer(t, "sqlserver")
 
 	uri := testDatastore.GetConnectionURI(true)
 	cfg := sqlcommon.NewConfig()
@@ -446,7 +446,7 @@ func TestFindLatestModel(t *testing.T) {
 // migration 005_add_conditions_to_tuples can be successfully read.
 func TestAllowNullCondition(t *testing.T) {
 	ctx := context.Background()
-	testDatastore := storagefixtures.RunDatastoreTestContainer(t, "azure")
+	testDatastore := storagefixtures.RunDatastoreTestContainer(t, "sqlserver")
 
 	uri := testDatastore.GetConnectionURI(true)
 	cfg := sqlcommon.NewConfig()
@@ -554,7 +554,7 @@ func TestAllowNullCondition(t *testing.T) {
 // needs to change, we'll likely need to introduce a series of data migrations.
 func TestMarshalledAssertions(t *testing.T) {
 	ctx := context.Background()
-	testDatastore := storagefixtures.RunDatastoreTestContainer(t, "azure")
+	testDatastore := storagefixtures.RunDatastoreTestContainer(t, "sqlserver")
 
 	uri := testDatastore.GetConnectionURI(true)
 	cfg := sqlcommon.NewConfig()

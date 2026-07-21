@@ -19,7 +19,7 @@ import (
 )
 
 func TestValidationResult(t *testing.T) {
-	engines := []string{"postgres", "mysql", "sqlite", "azure"}
+	engines := []string{"postgres", "mysql", "sqlite", "sqlserver"}
 
 	totalStores := 200
 	totalModelsForOneStore := 200

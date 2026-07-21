@@ -13,8 +13,8 @@ import (
 
 	"github.com/openfga/openfga/assets"
 	"github.com/openfga/openfga/pkg/logger"
-	"github.com/openfga/openfga/pkg/storage/azure"
 	"github.com/openfga/openfga/pkg/storage/sqlite"
+	"github.com/openfga/openfga/pkg/storage/sqlserver"
 )
 
 type MigrationConfig struct {
@@ -36,7 +36,7 @@ type MigrationConfig struct {
 // 1. Explicitly control when OpenFGA migrations run
 // 2. Integrate OpenFGA's schema updates into their own migration workflows
 // 3. Perform versioned upgrades of the schema as needed
-// The function handles migrations for multiple database engines (postgres, mysql, sqlite, azure) and supports
+// The function handles migrations for multiple database engines (postgres, mysql, sqlite, sqlserver) and supports
 // both upgrading and downgrading to specific versions.
 func RunMigrations(cfg MigrationConfig) error {
 	goose.SetLogger(goose.NopLogger())
@@ -96,16 +96,18 @@ func RunMigrations(cfg MigrationConfig) error {
 
 		// Replace CLI uri with the one we just updated.
 		uri = dbURI.String()
-	case "azure":
-		// The azuresql driver is registered by the azuread package (imported
-		// via pkg/storage/azure). It supports both SQL authentication and
-		// Entra ID authentication (`authentication=...` connection strings).
+	case "sqlserver":
+		// "azuresql" is the driver name registered by the go-mssqldb/azuread
+		// package (imported via pkg/storage/sqlserver). It behaves like the
+		// plain sqlserver driver for SQL authentication and additionally
+		// supports Entra ID authentication (`fedauth=...` connection strings)
+		// for Azure SQL Database.
 		driver = "azuresql"
-		migrationsPath = assets.AzureMigrationDir
+		migrationsPath = assets.SQLServerMigrationDir
 
 		// Apply username/password overrides, if set via flags. Supports both
 		// the URL and the ADO/DSN connection string formats.
-		withCreds, err := azure.ApplyCredentials(uri, cfg.Username, cfg.Password)
+		withCreds, err := sqlserver.ApplyCredentials(uri, cfg.Username, cfg.Password)
 		if err != nil {
 			return err
 		}
