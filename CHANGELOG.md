@@ -8,7 +8,7 @@ Try to keep listed changes to a concise bulleted list of simple explanations of 
 
 ## [Unreleased]
 ### Added
-- Added a new `sqlserver` datastore engine (beta) supporting SQL Server and Azure SQL Database for `openfga run` and `openfga migrate`. It connects through the `go-mssqldb/azuread` driver, so Microsoft Entra ID authentication (e.g. `fedauth=ActiveDirectoryManagedIdentity`) is supported alongside SQL authentication. Identifier columns use the binary collation `Latin1_General_BIN2` for case-sensitive comparison, deadlocks on tuple writes surface as a retryable `409 Conflict`, and Azure SQL throttling errors surface as a retryable `429 ResourceExhausted`. See `docs/sqlserver-storage.md`. <!-- TODO: add PR link -->
+- Added a new `sqlserver` datastore engine (beta) supporting SQL Server and Azure SQL Database, including Microsoft Entra ID authentication via the `go-mssqldb/azuread` driver. See [docs/sqlserver-storage.md](./docs/sqlserver-storage.md) for connection string formats and operational details. <!-- TODO: add PR link -->
 - Extended experimental `weighted_graph_check` diagnostic logging to cover the `wildcard_with_exclusion` and `userset_with_exclusion` shapes: the log now fires when v2 Check rejects one of these shapes and Check falls back to v1, and when v2 Check is skipped entirely because the weighted graph fails to build. These logs surface authorization models that may be affected by a future v1 deprecation, and no operator action is required. [#3204](https://github.com/openfga/openfga/pull/3204)
 
 ### Changed
